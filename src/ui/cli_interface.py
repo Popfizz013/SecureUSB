@@ -327,17 +327,15 @@ class CLIInterface:
                             return
                         elif confirm == 'DESTROY':
                             print("⚠️ User confirmed destruction of existing encrypted files!")
-                            # Create backup of existing metadata before overwriting
+                            # Remove existing metadata since we're overwriting with new credentials
                             try:
-                                import shutil
                                 mount_path = Path(mount_point)
                                 existing_meta = mount_path / ".secureusb_meta.json"
                                 if existing_meta.exists():
-                                    backup_meta = mount_path / f".secureusb_meta.json.backup_{int(time.time())}"
-                                    shutil.copy2(existing_meta, backup_meta)
-                                    print(f"✓ Created backup of existing metadata: {backup_meta.name}")
+                                    existing_meta.unlink()
+                                    print(f"✓ Removed existing metadata file")
                             except Exception as e:
-                                print(f"Warning: Could not create metadata backup: {e}")
+                                print(f"Warning: Could not remove existing metadata: {e}")
                             break
                         else:
                             print("Please type exactly 'DESTROY' or 'cancel'")
@@ -350,17 +348,15 @@ class CLIInterface:
                             return
                         elif confirm in ['y', 'yes']:
                             print("Proceeding with metadata re-initialization...")
-                            # Create backup of existing metadata before overwriting
+                            # Remove existing metadata since we're creating new credentials
                             try:
-                                import shutil
                                 mount_path = Path(mount_point)
                                 existing_meta = mount_path / ".secureusb_meta.json"
                                 if existing_meta.exists():
-                                    backup_meta = mount_path / f".secureusb_meta.json.backup_{int(time.time())}"
-                                    shutil.copy2(existing_meta, backup_meta)
-                                    print(f"✓ Created backup of existing metadata: {backup_meta.name}")
+                                    existing_meta.unlink()
+                                    print(f"✓ Removed existing metadata file")
                             except Exception as e:
-                                print(f"Warning: Could not create metadata backup: {e}")
+                                print(f"Warning: Could not remove existing metadata: {e}")
                             break
                         else:
                             print("Please answer 'y' or 'n'")

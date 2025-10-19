@@ -150,7 +150,11 @@ class MetadataManager:
             return False
     
     def backup_metadata(self, backup_suffix: Optional[str] = None) -> Optional[Path]:
-        """Create a backup of the metadata file."""
+        """Create a backup of the metadata file.
+        
+        Note: This method is kept for compatibility but consider using delete_metadata()
+        instead if you're reinitializing to avoid cluttering the storage.
+        """
         if not backup_suffix:
             from datetime import datetime
             backup_suffix = f"backup_{int(datetime.now().timestamp())}"

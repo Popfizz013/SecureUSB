@@ -366,15 +366,13 @@ class App(tk.Tk):
                     self._log("Metadata initialization cancelled - existing metadata preserved")
                     return
         
-        # Create backup of existing metadata if it exists
+        # Remove existing metadata if it exists (since we're overwriting with new credentials)
         if meta_path.exists():
-            backup_path = Path(mp) / f"{META_FILENAME}.backup_{int(time.time())}"
             try:
-                import shutil
-                shutil.copy2(meta_path, backup_path)
-                self._log(f"Created backup of existing metadata: {backup_path.name}")
+                meta_path.unlink()
+                self._log(f"Removed existing metadata file: {META_FILENAME}")
             except Exception as e:
-                self._log(f"Warning: Could not create metadata backup: {e}")
+                self._log(f"Warning: Could not remove existing metadata: {e}")
         
         # Proceed with initialization
         meta = am.create_auth_data(pw)
