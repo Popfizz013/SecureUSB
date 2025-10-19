@@ -1,11 +1,8 @@
 """
-Minimal USB/removable volume detection using psutil.
+USB/removable volume detection using psutil.
 
-Run once:
-  python tools/usb_detect_psutil.py
-
-Poll every 2s:
-  python tools/usb_detect_psutil.py --watch 2
+This module provides USB device detection and management capabilities
+for the SecureUSB system.
 """
 import argparse
 import json
