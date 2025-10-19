@@ -200,8 +200,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("920x600")
-        self.minsize(780, 480)
+        self.geometry("1080x800")
+        self.minsize(1080, 800)
 
         self.mounts: list[tuple[str, str]] = []
         self._last_set: set[str] = set()
@@ -231,7 +231,7 @@ class App(tk.Tk):
         ttk.Separator(self).pack(fill="x", pady=(6,8))
 
         lf = ttk.LabelFrame(self, text="Initialize / Authenticate", padding=10); lf.pack(fill="x", padx=10)
-        ttk.Label(lf, text="Owner:").grid(row=0, column=0, sticky="w")
+        ttk.Label(lf, text="Username:").grid(row=0, column=0, sticky="w")
         self.ent_owner = ttk.Entry(lf, width=24); self.ent_owner.grid(row=0, column=1, sticky="w", padx=6)
         ttk.Label(lf, text="Password:").grid(row=0, column=2, sticky="e")
         self.ent_pw = ttk.Entry(lf, width=24, show="•"); self.ent_pw.grid(row=0, column=3, sticky="w", padx=6)
@@ -250,10 +250,11 @@ class App(tk.Tk):
         self.txt = tk.Text(logf, height=20); self.txt.pack(fill="both", expand=True)
 
     def _startup(self):
-        self._log("Welcome 👋  Steps:")
-        self._log(" 1) Plug in your USB (macOS: /Volumes/<name> or Windows: D:\\ etc.)")
-        self._log(" 2) Auto-refresh is ON. Watch the log for 'USB added/removed'.")
-        self._log(" 3) Select USB → set password → Init Metadata → Encrypt/Decrypt.")
+        self._log("Welcome to Secure USB! Please read the following steps:\n")
+        self._log(" 1) Plug in your USB drive")
+        self._log(" 2) Auto-refresh is ON by default. Watch to see your USB get detected.")
+        self._log(" 3) [TO ENCRYPT]: Select USB → Choose a username and password → Init Metadata → Encrypt.")
+        self._log(" 4) [TO DECRYPT]: Select USB → Enter your username and password → Check Password → Decrypt.\n")
 
     # ----- helpers
     def _select_mount(self) -> str | None:
@@ -331,7 +332,7 @@ class App(tk.Tk):
         if not pw: return messagebox.showwarning("Password", "Enter a password.")
         am = AuthManager(mp)
         meta = am.create_auth_data(pw)
-        meta["owner"] = owner
+        meta["Username"] = owner
         am.write_metadata_atomic(meta)
         self._log(f"Initialized metadata at {mp}/{META_FILENAME}")
         self._update_meta_state()
