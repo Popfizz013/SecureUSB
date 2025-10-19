@@ -7,3 +7,9 @@ venv/
 
 # Static requirements file
 requirements.txt
+
+__pycache__/
+*.pyc
+*.pyo
+src/ui/__pycache__/
+src/utils/__pycache__/
