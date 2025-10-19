@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "kdf": "pbkdf2",
+  "hash_name": "sha256",
+  "iterations": 200000,
+  "salt": "sm+dDuvv67RAPLu+H3aXhceHcKDOu/HKNCLu/+lZqL8=",
+  "key_hash": "TA5khW9h1AsagQkoggZ2WXyCv0PjF35fJZRQazbqErU=",
+  "created_at": "2025-10-19T17:54:56.003940Z"
+}
