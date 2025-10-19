@@ -1,0 +1,125 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --clean --onefile --name SecureUSB src/main.py
+
+      - name: (Windows) Create NSIS installer
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install nsis -y || true
+          mkdir -p installer
+          cp installer/secureusb.nsi installer/
+          # Copy executable into installer folder for NSIS to include
+          cp dist/SecureUSB.exe installer/SecureUSB.exe
+          "C:\Program Files\NSIS\makensis.exe" installer\secureusb.nsi || makensis installer\secureusb.nsi
+
+      - name: (macOS) Package .app and create DMG
+        if: matrix.os == 'macos-latest'
+        run: |
+          chmod +x scripts/package_mac_app.sh
+          ./scripts/package_mac_app.sh
+        shell: bash
+
+      - name: Conditional Windows signing (placeholder)
+        if: matrix.os == 'windows-latest' && secrets.WINDOWS_CERT_PFX != ''
+        run: |
+          echo "Importing PFX to the user certificate store..."
+          echo $WINDOWS_CERT_PFX | base64 -d > cert.pfx
+          powershell -Command "Import-PfxCertificate -FilePath cert.pfx -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString -String \"$env:WINDOWS_CERT_PASSWORD\" -AsPlainText -Force)"
+          echo "Signing executable with signtool..."
+          signtool sign /n "$env:WINDOWS_SIGNING_SUBJECT" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 dist\\SecureUSB.exe
+          echo "Signing installer (if exists)"
+          if [ -f installer/SecureUSB-Installer.exe ]; then
+            signtool sign /n "$WINDOWS_SIGNING_SUBJECT" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 installer/SecureUSB-Installer.exe || true
+          fi
+        env:
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          WINDOWS_SIGNING_SUBJECT: ${{ secrets.WINDOWS_SIGNING_SUBJECT }}
+
+      - name: Conditional macOS codesign & notarize (placeholder)
+        if: matrix.os == 'macos-latest' && secrets.MAC_SIGNING_ID != ''
+        run: |
+          echo "Codesigning .app and DMG (placeholder)."
+          if [ -d dist/SecureUSB.app ]; then
+            codesign --deep --force --verbose --sign "$MAC_SIGNING_ID" dist/SecureUSB.app || true
+          fi
+          if [ -f SecureUSB.dmg ]; then
+            echo "Notarizing DMG (placeholder) - requires FASTLANE_APPLE_APPLICATION_SPECIFIC_PASSWORD or apple credentials"
+            # Example notarization with notarytool (requires setup):
+            # xcrun notarytool submit SecureUSB.dmg --keychain-profile "AC_PASSWORD_PROFILE" --wait
+          fi
+        env:
+          MAC_SIGNING_ID: ${{ secrets.MAC_SIGNING_ID }}
+
+      - name: List artifacts for upload
+        run: |
+          echo "dist contents:"; ls -la dist || true
+          echo "installer contents:"; ls -la installer || true
+          echo "release_tmp contents:"; ls -la release_tmp || true
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SecureUSB-${{ matrix.os }}
+          path: |
+            dist/*
+            installer/*
+            SecureUSB.dmg
+
+  create_release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release-artifacts/**
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
