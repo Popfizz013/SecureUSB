@@ -69,4 +69,4 @@ if __name__ == "__main__":
         am.create_and_store_metadata(pw, metadata_file=meta_file)
 
     # Run the dummy insert flow (asks for password and verifies)
-    dummy_usb_insert_event(am, metadata_file)
+    dummy_usb_insert_event(am, meta_file)
