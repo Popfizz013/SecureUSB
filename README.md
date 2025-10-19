@@ -3,9 +3,9 @@
 SecureUSB is a cross-platform app that provides secure authentication, encryption, and decryption for USB devices. It integrates USB detection, password-based authentication, AES-256-GCM encryption, and a user-friendly CLI for managing USB security.
 
 # Meet the Team!!
-Liam – Systems Architect & Team Lead
-Michael – Encryption & Metadata
-Rahil – UI & CLI Developer
+Liam – Systems Architect & Team Lead  \
+Michael – Encryption & Metadata  \
+Rahil – UI & CLI Developer  \
 
 # 🚀 Features:
  ## 1. USB Detection & Authentication
