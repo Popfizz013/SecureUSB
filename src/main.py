@@ -8,6 +8,7 @@ It provides both CLI and future GUI interfaces for secure USB operations.
 
 import argparse
 import sys
+from ui.app import main as launch_gui
 from pathlib import Path
 
 # Add the src directory to the Python path
@@ -101,8 +102,7 @@ Examples:
         elif args.status:
             cli.list_encrypted_devices()
         elif args.gui:
-            print("GUI interface is not implemented yet.")
-            print("Please use CLI options for now.")
+             launch_gui()  # Launch the Tkinter GUI
         else:
             parser.print_help()
             
