@@ -73,7 +73,7 @@ Examples:
     parser.add_argument(
         "--gui",
         action="store_true",
-        help="Launch GUI interface (future feature)"
+        help="Launch GUI interface"
     )
     
     parser.add_argument(
