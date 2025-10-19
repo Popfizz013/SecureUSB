@@ -63,6 +63,9 @@ class TestCryptoEngine(unittest.TestCase):
             temp_file.write(test_content)
             temp_file_path = Path(temp_file.name)
             
+        encrypted_path = None
+        decrypted_path = None
+        
         try:
             # Encrypt file
             encrypted_path = temp_file_path.with_suffix('.encrypted')
@@ -87,7 +90,7 @@ class TestCryptoEngine(unittest.TestCase):
         finally:
             # Cleanup
             for path in [temp_file_path, encrypted_path, decrypted_path]:
-                if path.exists():
+                if path and path.exists():
                     path.unlink()
                     
     def test_invalid_encrypted_data(self):
