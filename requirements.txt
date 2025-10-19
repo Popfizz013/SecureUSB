@@ -1,5 +1,0 @@
-cryptography
-psutil
-pyudev
-tqdm
-pytest
