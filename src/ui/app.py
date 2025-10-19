@@ -66,7 +66,12 @@ def list_usb_mounts_with_logs(log_cb) -> list[tuple[str, str]]:
     """Try USBDetector (with and without diskutil), then psutil fallback."""
     detector = USBDetector()
     tried = []
-    for flag in (True, False):
+    is_darwin = (platform.system() == "Darwin")
+    
+    # On macOS, try with diskutil verification, on other platforms skip it
+    flags_to_try = [True, False] if is_darwin else [False]
+    
+    for flag in flags_to_try:
         try:
             devs = detector.detect_usb_devices(verify_with_diskutil=flag) or []
             tried.append(f"USBDetector(verify_with_diskutil={flag}) -> {len(devs)}")
@@ -79,14 +84,28 @@ def list_usb_mounts_with_logs(log_cb) -> list[tuple[str, str]]:
                     if mp:
                         label = f"{mp} ({dev}, {fs})" if (dev or fs) else mp
                         mounts.append((label, mp))
-                # ONLY real user USBs on macOS: /Volumes/*, not /System/Volumes/*, exclude Recovery/Preboot/Update/VM
-                mounts = [m for m in mounts if m[1].startswith("/Volumes/") and not (m[1].startswith("/System/Volumes/")) and os.path.basename(m[1]).lower() not in {"recovery","preboot","update","vm"}]
+                
+                # Platform-specific filtering
+                if is_darwin:
+                    # ONLY real user USBs on macOS: /Volumes/*, not /System/Volumes/*, exclude Recovery/Preboot/Update/VM
+                    mounts = [m for m in mounts if m[1].startswith("/Volumes/") and not (m[1].startswith("/System/Volumes/")) and os.path.basename(m[1]).lower() not in {"recovery","preboot","update","vm"}]
+                else:
+                    # On Windows/Linux, the USBDetector already filtered appropriately
+                    pass
+                
                 log_cb(" | ".join(tried))
                 return mounts
         except Exception as e:
             tried.append(f"USBDetector(flag={flag}) -> ERROR {e}")
-    mounts = _psutil_mounts_mac_only_volumes()
-    tried.append(f"psutil fallback -> {len(mounts)}")
+    
+    # Fallback only for macOS
+    if is_darwin:
+        mounts = _psutil_mounts_mac_only_volumes()
+        tried.append(f"psutil fallback -> {len(mounts)}")
+    else:
+        mounts = []
+        tried.append("No fallback for non-macOS")
+    
     log_cb(" | ".join(tried))
     return mounts
 
@@ -146,7 +165,12 @@ class App(tk.Tk):
 
     def _startup_message(self):
         self._log("Welcome 👋  Steps:")
-        self._log(" 1) Plug in your USB (on macOS it mounts under /Volumes/<name>).")
+        if platform.system() == "Darwin":
+            self._log(" 1) Plug in your USB (on macOS it mounts under /Volumes/<name>).")
+        elif platform.system() == "Windows":
+            self._log(" 1) Plug in your USB (on Windows it appears as a drive letter like D:, E:, F:).")
+        else:
+            self._log(" 1) Plug in your USB and ensure it's mounted.")
         self._log(" 2) Auto-refresh is ON. Watch the log for 'USB added/removed'.")
         self._log(" 3) Select your USB → set password → Init Metadata → Encrypt/Decrypt.")
 
@@ -165,8 +189,15 @@ class App(tk.Tk):
             self.cbo_mount.current(0)
         curr_set = set(mp for _, mp in self.mounts)
         self._last_mount_set = curr_set
-        self._log(f"Found {len(self.mounts)} removable volume(s)." if self.mounts else
-                  "No removable volumes found. On macOS, your USB should appear under /Volumes.")
+        if self.mounts:
+            self._log(f"Found {len(self.mounts)} removable volume(s).")
+        else:
+            if platform.system() == "Darwin":
+                self._log("No removable volumes found. On macOS, your USB should appear under /Volumes.")
+            elif platform.system() == "Windows":
+                self._log("No removable volumes found. On Windows, your USB should appear as a drive letter (D:, E:, F:, etc.).")
+            else:
+                self._log("No removable volumes found. Your USB should appear as a mounted drive.")
         self._update_meta_state()
 
     def _update_meta_state(self):
