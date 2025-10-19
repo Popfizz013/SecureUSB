@@ -19,7 +19,7 @@ from src.auth_manager import AuthManager
 from src.crypto_engine import encrypt_file, decrypt_file, CryptoEngine
 from src.utils.file_utils import FileUtils
 
-APP_TITLE = "SecureUSB (Tkinter)"
+APP_TITLE = "SecureUSB"
 META_FILENAME = ".secureusb_meta.json"
 POLL_MS = 1500  # auto-refresh every 1.5s
 
@@ -235,7 +235,20 @@ class App(tk.Tk):
         self.ent_owner = ttk.Entry(lf, width=24); self.ent_owner.grid(row=0, column=1, sticky="w", padx=6)
         ttk.Label(lf, text="Password:").grid(row=0, column=2, sticky="e")
         self.ent_pw = ttk.Entry(lf, width=24, show="•"); self.ent_pw.grid(row=0, column=3, sticky="w", padx=6)
-        ttk.Button(lf, text="Init Metadata", command=self.on_init).grid(row=0, column=4, padx=6)
+
+        self.btn_init = ttk.Button(lf, text="Init Metadata", command=self.on_init)
+        self.btn_init.grid(row=0, column=4, padx=6)
+            # Start disabled until both fields are non-empty
+        self.btn_init.configure(state="disabled")
+
+        # Re-compute enabled/disabled whenever either field changes
+        self.ent_owner.bind("<KeyRelease>", self._update_init_button_state)
+        self.ent_owner.bind("<FocusOut>",  self._update_init_button_state)
+        self.ent_pw.bind("<KeyRelease>",   self._update_init_button_state)
+        self.ent_pw.bind("<FocusOut>",     self._update_init_button_state)
+
+        # Set initial state on launch
+        self._update_init_button_state()
         ttk.Button(lf, text="Check Password", command=self.on_check).grid(row=0, column=5, padx=6)
         for i in range(6): lf.grid_columnconfigure(i, weight=1)
 
@@ -286,6 +299,11 @@ class App(tk.Tk):
             self.lbl_meta.config(text="present")
         except Exception:
             self.lbl_meta.config(text="missing")
+
+    def _update_init_button_state(self, *_):
+        username_ok = bool(self.ent_owner.get().strip())
+        pw_ok = bool(self.ent_pw.get().strip())
+        self.btn_init.configure(state=("normal" if (username_ok and pw_ok) else "disabled"))
 
     # ----- logging / polling
     def _log(self, s: str):
