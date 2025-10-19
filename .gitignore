@@ -1,0 +1,7 @@
+.vscode/settings.json
+
+# Virtual environment
+venv/
+
+# Static requirements file
+requirements.txt
