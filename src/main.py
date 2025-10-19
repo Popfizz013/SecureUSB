@@ -31,7 +31,6 @@ Examples:
   %(prog)s --detect              # Detect connected USB devices once
   %(prog)s --monitor 2.0         # Monitor USB devices (poll every 2 seconds)  
   %(prog)s --status              # Show encryption status of all USB devices
-  %(prog)s --demo-flow           # Demonstrate full integration flow
   %(prog)s --encrypt "D:/"       # Encrypt all files on USB drive D:/
   %(prog)s --decrypt             # Auto-detect and decrypt encrypted USB device
         """
@@ -71,12 +70,6 @@ Examples:
     )
     
     parser.add_argument(
-        "--demo-flow",
-        action="store_true",
-        help="Demonstrate complete USB detection → authentication → encryption flow"
-    )
-    
-    parser.add_argument(
         "--gui",
         action="store_true",
         help="Launch GUI interface (future feature)"
@@ -107,8 +100,6 @@ Examples:
                 cli.decrypt_device(args.decrypt)
         elif args.status:
             cli.list_encrypted_devices()
-        elif args.demo_flow:
-            cli.demonstrate_full_flow()
         elif args.gui:
             print("GUI interface is not implemented yet.")
             print("Please use CLI options for now.")
