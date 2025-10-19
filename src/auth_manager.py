@@ -109,6 +109,7 @@ class AuthManager:
                 prompt_fn = getpass.getpass
 
         password = prompt_fn("Enter password: ")
+        
         if confirm:
             confirm_password = prompt_fn("Confirm password: ")
             if password != confirm_password:
