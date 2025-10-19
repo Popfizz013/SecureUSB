@@ -200,8 +200,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("920x600")
-        self.minsize(780, 480)
+        self.geometry("1080x800")
+        self.minsize(1080, 800)
 
         self.mounts: list[tuple[str, str]] = []
         self._last_set: set[str] = set()
@@ -231,7 +231,7 @@ class App(tk.Tk):
         ttk.Separator(self).pack(fill="x", pady=(6,8))
 
         lf = ttk.LabelFrame(self, text="Initialize / Authenticate", padding=10); lf.pack(fill="x", padx=10)
-        ttk.Label(lf, text="Owner:").grid(row=0, column=0, sticky="w")
+        ttk.Label(lf, text="Username:").grid(row=0, column=0, sticky="w")
         self.ent_owner = ttk.Entry(lf, width=24); self.ent_owner.grid(row=0, column=1, sticky="w", padx=6)
         ttk.Label(lf, text="Password:").grid(row=0, column=2, sticky="e")
         self.ent_pw = ttk.Entry(lf, width=24, show="•"); self.ent_pw.grid(row=0, column=3, sticky="w", padx=6)
@@ -250,10 +250,11 @@ class App(tk.Tk):
         self.txt = tk.Text(logf, height=20); self.txt.pack(fill="both", expand=True)
 
     def _startup(self):
-        self._log("Welcome 👋  Steps:")
-        self._log(" 1) Plug in your USB (macOS: /Volumes/<name> or Windows: D:\\ etc.)")
-        self._log(" 2) Auto-refresh is ON. Watch the log for 'USB added/removed'.")
-        self._log(" 3) Select USB → set password → Init Metadata → Encrypt/Decrypt.")
+        self._log("Welcome to Secure USB! Please read the following steps:\n")
+        self._log(" 1) Plug in your USB drive")
+        self._log(" 2) Auto-refresh is ON by default. Watch to see your USB get detected.")
+        self._log(" 3) [TO ENCRYPT]: Select USB → Choose a username and password → Init Metadata → Encrypt.")
+        self._log(" 4) [TO DECRYPT]: Select USB → Enter your username and password → Check Password → Decrypt.\n")
 
     # ----- helpers
     def _select_mount(self) -> str | None:
@@ -329,9 +330,54 @@ class App(tk.Tk):
         owner = self.ent_owner.get().strip() or os.getlogin()
         pw = self.ent_pw.get()
         if not pw: return messagebox.showwarning("Password", "Enter a password.")
+        
         am = AuthManager(mp)
+        
+        # Check if metadata already exists
+        meta_path = Path(mp) / META_FILENAME
+        if meta_path.exists():
+            # Check if there are encrypted files that could become inaccessible
+            encrypted_files = list(walk_enc_files(mp))
+            if encrypted_files:
+                # Critical warning: encrypted files exist
+                response = messagebox.askquestion(
+                    "⚠️ DANGER - Encrypted Files Detected",
+                    f"This USB drive already contains {len(encrypted_files)} encrypted files!\n\n"
+                    "Re-initializing metadata will make these files PERMANENTLY INACCESSIBLE.\n"
+                    "This action CANNOT be undone!\n\n"
+                    "If this is your USB drive, use 'Check Password' instead to verify access.\n"
+                    "If you borrowed this USB, return it to the owner first.\n\n"
+                    "Are you ABSOLUTELY SURE you want to destroy the existing encrypted data?"
+                )
+                if response != 'yes':
+                    self._log("⚠️ Metadata initialization cancelled - existing encrypted files preserved")
+                    return
+                self._log(f"⚠️ WARNING: User chose to overwrite metadata with {len(encrypted_files)} encrypted files present!")
+            else:
+                # Metadata exists but no encrypted files - safer to reinitialize
+                response = messagebox.askquestion(
+                    "Metadata Already Exists",
+                    "This USB drive already has SecureUSB metadata.\n\n"
+                    "Re-initializing will create new encryption keys.\n"
+                    "Any future encrypted files will use the new password.\n\n"
+                    "Continue with re-initialization?",
+                    default=messagebox.NO
+                )
+                if response != 'yes':
+                    self._log("Metadata initialization cancelled - existing metadata preserved")
+                    return
+        
+        # Remove existing metadata if it exists (since we're overwriting with new credentials)
+        if meta_path.exists():
+            try:
+                meta_path.unlink()
+                self._log(f"Removed existing metadata file: {META_FILENAME}")
+            except Exception as e:
+                self._log(f"Warning: Could not remove existing metadata: {e}")
+        
+        # Proceed with initialization
         meta = am.create_auth_data(pw)
-        meta["owner"] = owner
+        meta["Username"] = owner
         am.write_metadata_atomic(meta)
         self._log(f"Initialized metadata at {mp}/{META_FILENAME}")
         self._update_meta_state()

@@ -310,10 +310,56 @@ class CLIInterface:
                 print("Use --decrypt option to access the encrypted files first.")
                 return
             
-            # If metadata exists but no encrypted files, device was previously encrypted but is now decrypted
+            # Check if metadata already exists - this could be dangerous!
             if metadata_manager.metadata_exists():
-                print("\n⚠️  Device was previously encrypted but files are currently decrypted.")
-                print("Proceeding with re-encryption...")
+                if user_encrypted_files:
+                    print("\n🚨 CRITICAL WARNING: This USB drive already has encrypted content!")
+                    print(f"   Found {len(user_encrypted_files)} encrypted files from another user/session.")
+                    print(f"   Re-encrypting will make these files PERMANENTLY INACCESSIBLE!")
+                    print(f"   This action CANNOT be undone!")
+                    print("\n   If this is your USB drive, use --decrypt instead to access your files.")
+                    print("   If you borrowed this USB, please return it to the owner first.")
+                    
+                    while True:
+                        confirm = input("\nType 'DESTROY' to confirm you want to destroy existing encrypted data, or 'cancel' to abort: ").strip()
+                        if confirm.lower() == 'cancel':
+                            print("Operation cancelled. Existing encrypted files preserved.")
+                            return
+                        elif confirm == 'DESTROY':
+                            print("⚠️ User confirmed destruction of existing encrypted files!")
+                            # Remove existing metadata since we're overwriting with new credentials
+                            try:
+                                mount_path = Path(mount_point)
+                                existing_meta = mount_path / ".secureusb_meta.json"
+                                if existing_meta.exists():
+                                    existing_meta.unlink()
+                                    print(f"✓ Removed existing metadata file")
+                            except Exception as e:
+                                print(f"Warning: Could not remove existing metadata: {e}")
+                            break
+                        else:
+                            print("Please type exactly 'DESTROY' or 'cancel'")
+                else:
+                    print("\n⚠️  Device was previously encrypted but files are currently decrypted.")
+                    while True:
+                        confirm = input("Re-initialize encryption metadata? This will create new encryption keys. (y/n): ").strip().lower()
+                        if confirm in ['n', 'no']:
+                            print("Operation cancelled. Use existing metadata.")
+                            return
+                        elif confirm in ['y', 'yes']:
+                            print("Proceeding with metadata re-initialization...")
+                            # Remove existing metadata since we're creating new credentials
+                            try:
+                                mount_path = Path(mount_point)
+                                existing_meta = mount_path / ".secureusb_meta.json"
+                                if existing_meta.exists():
+                                    existing_meta.unlink()
+                                    print(f"✓ Removed existing metadata file")
+                            except Exception as e:
+                                print(f"Warning: Could not remove existing metadata: {e}")
+                            break
+                        else:
+                            print("Please answer 'y' or 'n'")
             
             # Step 2: Authentication Setup
             print("\nStep 2: Setting up authentication...")
