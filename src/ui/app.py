@@ -329,7 +329,54 @@ class App(tk.Tk):
         owner = self.ent_owner.get().strip() or os.getlogin()
         pw = self.ent_pw.get()
         if not pw: return messagebox.showwarning("Password", "Enter a password.")
+        
         am = AuthManager(mp)
+        
+        # Check if metadata already exists
+        meta_path = Path(mp) / META_FILENAME
+        if meta_path.exists():
+            # Check if there are encrypted files that could become inaccessible
+            encrypted_files = list(walk_enc_files(mp))
+            if encrypted_files:
+                # Critical warning: encrypted files exist
+                response = messagebox.askquestion(
+                    "⚠️ DANGER - Encrypted Files Detected",
+                    f"This USB drive already contains {len(encrypted_files)} encrypted files!\n\n"
+                    "Re-initializing metadata will make these files PERMANENTLY INACCESSIBLE.\n"
+                    "This action CANNOT be undone!\n\n"
+                    "If this is your USB drive, use 'Check Password' instead to verify access.\n"
+                    "If you borrowed this USB, return it to the owner first.\n\n"
+                    "Are you ABSOLUTELY SURE you want to destroy the existing encrypted data?"
+                )
+                if response != 'yes':
+                    self._log("⚠️ Metadata initialization cancelled - existing encrypted files preserved")
+                    return
+                self._log(f"⚠️ WARNING: User chose to overwrite metadata with {len(encrypted_files)} encrypted files present!")
+            else:
+                # Metadata exists but no encrypted files - safer to reinitialize
+                response = messagebox.askquestion(
+                    "Metadata Already Exists",
+                    "This USB drive already has SecureUSB metadata.\n\n"
+                    "Re-initializing will create new encryption keys.\n"
+                    "Any future encrypted files will use the new password.\n\n"
+                    "Continue with re-initialization?",
+                    default=messagebox.NO
+                )
+                if response != 'yes':
+                    self._log("Metadata initialization cancelled - existing metadata preserved")
+                    return
+        
+        # Create backup of existing metadata if it exists
+        if meta_path.exists():
+            backup_path = Path(mp) / f"{META_FILENAME}.backup_{int(time.time())}"
+            try:
+                import shutil
+                shutil.copy2(meta_path, backup_path)
+                self._log(f"Created backup of existing metadata: {backup_path.name}")
+            except Exception as e:
+                self._log(f"Warning: Could not create metadata backup: {e}")
+        
+        # Proceed with initialization
         meta = am.create_auth_data(pw)
         meta["owner"] = owner
         am.write_metadata_atomic(meta)

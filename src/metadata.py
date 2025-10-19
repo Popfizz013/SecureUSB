@@ -137,3 +137,32 @@ class MetadataManager:
             return bytes.fromhex(metadata["key_verifier_hex"])
         except (KeyError, ValueError):
             return None
+    
+    def delete_metadata(self) -> bool:
+        """Delete the metadata file (use with caution!)."""
+        try:
+            metadata_path = self.get_metadata_file_path()
+            if metadata_path.exists():
+                metadata_path.unlink()
+                return True
+            return False
+        except (IOError, OSError):
+            return False
+    
+    def backup_metadata(self, backup_suffix: Optional[str] = None) -> Optional[Path]:
+        """Create a backup of the metadata file."""
+        if not backup_suffix:
+            from datetime import datetime
+            backup_suffix = f"backup_{int(datetime.now().timestamp())}"
+        
+        try:
+            metadata_path = self.get_metadata_file_path()
+            if not metadata_path.exists():
+                return None
+            
+            backup_path = metadata_path.with_suffix(f".{backup_suffix}")
+            import shutil
+            shutil.copy2(metadata_path, backup_path)
+            return backup_path
+        except (IOError, OSError):
+            return None
