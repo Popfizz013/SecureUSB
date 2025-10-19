@@ -73,11 +73,11 @@ SecureUSB - Secure USB Drive Protection System
 | `--verbose, -v`      | Enable verbose output                                                        |
 
 ### Example:
-python src/main.py --detect              # Detect connected USB devices once
-python src/main.py --monitor 2.0         # Monitor USB devices (poll every 2 seconds)
-python src/main.py --status              # Show encryption status of all USB devices
-python src/main.py --encrypt "D:/"       # Encrypt all files on USB drive D:/
-python src/main.py --decrypt             # Auto-detect and decrypt encrypted USB device
+        python src/main.py --detect              # Detect connected USB devices once  
+        python src/main.py --monitor 2.0         # Monitor USB devices (poll every 2 seconds)  
+        python src/main.py --status              # Show encryption status of all USB devices   
+        python src/main.py --encrypt "D:/"       # Encrypt all files on USB drive D:/  
+        python src/main.py --decrypt             # Auto-detect and decrypt encrypted USB device  
 
 # user-guide: 
 
