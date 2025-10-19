@@ -1,7 +1,22 @@
 .vscode/settings.json
+.vscode/
 
 # Virtual environment
 venv/
+.venv/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+src/ui/__pycache__/
+src/utils/__pycache__/
 
 # Static requirements file
 requirements.txt
+
+__pycache__/
+*.pyc
+*.pyo
+src/ui/__pycache__/
+src/utils/__pycache__/
