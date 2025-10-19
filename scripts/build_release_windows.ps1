@@ -1,5 +1,12 @@
 # Build SecureUSB on Windows using PyInstaller
 Set-StrictMode -Version Latest
+# Ensure we run from the repository root (script is in repo\scripts)
+if ($PSScriptRoot) {
+    $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+    Set-Location $repoRoot
+}
+
+Write-Host "Working directory: $(Get-Location)"
 
 Write-Host "Installing Python packages..."
 try {
@@ -16,7 +23,8 @@ Write-Host "Cleaning previous builds..."
 Remove-Item -Recurse -Force build, dist, __pycache__ -ErrorAction SilentlyContinue
 
 Write-Host "Building SecureUSB.exe..."
-python -m PyInstaller --clean --onefile --name SecureUSB src\main.py
+# Ensure PyInstaller can find local packages in the repo 'src' folder
+python -m PyInstaller --clean --onefile --name SecureUSB --paths src src\main.py
 
 $artifact = Join-Path -Path (Get-Location) -ChildPath "dist\SecureUSB.exe"
 if (Test-Path $artifact) {

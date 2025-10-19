@@ -30,7 +30,7 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          pyinstaller --clean --onefile --name SecureUSB src/main.py
+          python -m PyInstaller --clean --onefile --name SecureUSB --paths src src/main.py
 
       - name: (Windows) Create NSIS installer
         if: matrix.os == 'windows-latest'

@@ -11,7 +11,7 @@ echo "Cleaning previous builds..."
 rm -rf build dist __pycache__
 
 echo "Building SecureUSB..."
-pyinstaller --clean --onefile --name SecureUSB src/main.py
+pyinstaller --clean --onefile --name SecureUSB --paths src src/main.py
 
 ARTIFACT=dist/SecureUSB
 if [ -f "$ARTIFACT" ]; then

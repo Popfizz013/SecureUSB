@@ -8,6 +8,7 @@ It provides both CLI and future GUI interfaces for secure USB operations.
 
 import argparse
 import sys
+import traceback
 from ui.app import main as launch_gui
 from pathlib import Path
 
@@ -104,15 +105,34 @@ Examples:
         elif args.gui:
              launch_gui()  # Launch the Tkinter GUI
         else:
-            parser.print_help()
+            # No CLI options supplied — launch the GUI by default for user convenience.
+            # If you prefer CLI-only behavior, run the executable with the appropriate flags (e.g. --detect).
+            launch_gui()
             
     except KeyboardInterrupt:
         print("\nOperation cancelled by user.")
         sys.exit(1)
     except Exception as e:
+        # Print a short error message to the console
         print(f"Error: {e}")
+
+        # Write a full traceback to a log file on the user's Desktop to help debug GUI crashes
+        try:
+            desktop = Path.home() / 'OneDrive' / 'Desktop'
+            # Fall back to standard Desktop location if OneDrive path doesn't exist
+            if not desktop.exists():
+                desktop = Path.home() / 'Desktop'
+            log_path = desktop / 'secureusb-exception.log'
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write('\n---- Exception captured: ' + str(Path(__file__)) + ' ----\n')
+                traceback.print_exc(file=f)
+            print(f"A detailed traceback was written to: {log_path}")
+        except Exception:
+            # If writing the file fails, ensure we still show traceback when verbose
+            if args.verbose:
+                traceback.print_exc()
+
         if args.verbose:
-            import traceback
             traceback.print_exc()
         sys.exit(1)
 
