@@ -50,6 +50,35 @@ Access Granted → Files are accessible in plain form
  
 # 🚀 Quick & Easy Installation and use
 
+## Command Line Interface (CLI)
+
+SecureUSB comes with a powerful command-line interface that allows users to detect, monitor, encrypt, and decrypt USB devices with ease.
+
+### Usage
+ python src/main.py [-h] [--detect] [--monitor INTERVAL] [--encrypt DEVICE] [--decrypt [DEVICE]] [--status] [--gui] [--verbose]
+
+
+### Description:
+SecureUSB - Secure USB Drive Protection System
+
+| Option               | Description                                                                  |
+| -------------------- | ---------------------------------------------------------------------------- |
+| `-h, --help`         | Show this help message and exit                                              |
+| `--detect`           | Detect and list connected USB devices                                        |
+| `--monitor INTERVAL` | Monitor USB devices with polling interval in seconds (e.g., `--monitor 2.0`) |
+| `--encrypt DEVICE`   | Encrypt the specified USB device                                             |
+| `--decrypt [DEVICE]` | Decrypt the specified USB device (or auto-detect if no device specified)     |
+| `--status`           | Show encryption status of all detected USB devices                           |
+| `--gui`              | Launch the GUI interface                                                     |
+| `--verbose, -v`      | Enable verbose output                                                        |
+
+### Example:
+python src/main.py --detect              # Detect connected USB devices once
+python src/main.py --monitor 2.0         # Monitor USB devices (poll every 2 seconds)
+python src/main.py --status              # Show encryption status of all USB devices
+python src/main.py --encrypt "D:/"       # Encrypt all files on USB drive D:/
+python src/main.py --decrypt             # Auto-detect and decrypt encrypted USB device
+
 # user-guide: 
 
 bash# Clone the repository
