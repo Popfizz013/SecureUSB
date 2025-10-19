@@ -555,12 +555,61 @@ class CLIInterface:
         
         for device in devices:
             metadata_manager = MetadataManager(device['device'])
-            if metadata_manager.metadata_exists():
+            mount_point = device['mountpoint']
+            mount_path = Path(mount_point)
+            
+            # Check for encrypted files (.enc extension), but exclude system/hidden files
+            user_encrypted_files = []
+            if mount_path.exists() and mount_path.is_dir():
+                try:
+                    # Find all .enc files but exclude hidden directories and system files
+                    for enc_file in mount_path.rglob('*.enc'):
+                        # Skip files in hidden directories (starting with .)
+                        if any(part.startswith('.') for part in enc_file.parts[1:]):
+                            continue
+                        # Skip system directories
+                        path_str = str(enc_file)
+                        if any(sys_dir in path_str for sys_dir in ['System Volume Information', '$RECYCLE.BIN']):
+                            continue
+                        user_encrypted_files.append(enc_file)
+                except PermissionError:
+                    # Skip if we can't access the directory
+                    pass
+            
+            # Device is considered encrypted if:
+            # 1. It has metadata AND user encrypted files, OR
+            # 2. It has metadata but no user files at all (encrypted then cleaned)
+            has_metadata = metadata_manager.metadata_exists()
+            has_user_encrypted_files = len(user_encrypted_files) > 0
+            
+            # Count total user files (excluding metadata and system files)
+            total_user_files = 0
+            if mount_path.exists() and mount_path.is_dir():
+                try:
+                    for file_path in mount_path.rglob('*'):
+                        if not file_path.is_file():
+                            continue
+                        # Skip metadata files
+                        if file_path.name.startswith('.secureusb_'):
+                            continue
+                        # Skip files in hidden directories
+                        if any(part.startswith('.') for part in file_path.parts[1:]):
+                            continue
+                        # Skip system directories
+                        path_str = str(file_path)
+                        if any(sys_dir in path_str for sys_dir in ['System Volume Information', '$RECYCLE.BIN']):
+                            continue
+                        total_user_files += 1
+                except PermissionError:
+                    pass
+            
+            if has_metadata and (has_user_encrypted_files or total_user_files == 0):
                 device_info = metadata_manager.get_device_info()
                 if device_info:
                     encrypted_devices.append({
                         'device': device,
-                        'metadata': device_info
+                        'metadata': device_info,
+                        'encrypted_file_count': len(user_encrypted_files)
                     })
             else:
                 unencrypted_devices.append(device)
@@ -577,6 +626,7 @@ class CLIInterface:
             for i, enc_device in enumerate(encrypted_devices, 1):
                 device = enc_device['device']
                 metadata = enc_device['metadata']
+                encrypted_count = enc_device['encrypted_file_count']
                 
                 print(f"\nDevice {i}: {device['device']}")
                 print(f"  Mount Point: {device['mountpoint']}")
@@ -589,7 +639,12 @@ class CLIInterface:
                 print(f"  Created: {metadata['created_at']}")
                 if metadata['last_accessed']:
                     print(f"  Last Accessed: {metadata['last_accessed']}")
-                print(f"  Status: 🔒 ENCRYPTED")
+                if encrypted_count > 0:
+                    print(f"  Encrypted User Files: {encrypted_count}")
+                    print(f"  Status: 🔒 ENCRYPTED")
+                else:
+                    print(f"  Encrypted User Files: 0 (files may be decrypted)")
+                    print(f"  Status: 🔓 DECRYPTED (device setup for encryption)")
         
         if unencrypted_devices:
             print(f"\n🔓 UNENCRYPTED DEVICES ({len(unencrypted_devices)}):")
