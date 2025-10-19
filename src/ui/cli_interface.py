@@ -2,6 +2,7 @@
 Command-line interface for SecureUSB.
 """
 import sys
+import time
 from pathlib import Path
 import getpass
 
@@ -44,6 +45,61 @@ class CLIInterface:
             print(f"Device {i}:")
             print(self.usb_detector.format_device_info(device))
             print()
+    
+    def monitor_usb_devices(self, interval: float) -> None:
+        """
+        Monitor USB devices with continuous polling.
+        
+        Args:
+            interval: Polling interval in seconds
+        """
+        print(f"Starting USB device monitoring (polling every {interval}s)...")
+        print("Press Ctrl+C to stop monitoring")
+        print()
+        
+        def on_device_added(device):
+            """Callback for when a device is added."""
+            print(f"[DEVICE ADDED] {device['device']} -> {device['mountpoint']}")
+            print(f"  Filesystem: {device['fstype'].upper()}")
+            if 'total_size' in device:
+                total_gb = device['total_size'] / (1024**3)
+                print(f"  Size: {total_gb:.2f} GB")
+            print()
+        
+        def on_device_removed(mountpoint):
+            """Callback for when a device is removed."""
+            print(f"[DEVICE REMOVED] {mountpoint}")
+            print()
+        
+        try:
+            # Show initial devices
+            initial_devices = self.usb_detector.detect_usb_devices()
+            if initial_devices:
+                print(f"Currently connected devices ({len(initial_devices)}):")
+                for device in initial_devices:
+                    print(f"  {device['device']} -> {device['mountpoint']}")
+                print()
+            else:
+                print("No USB devices currently connected.")
+                print()
+            
+            # Start monitoring
+            self.usb_detector.start_polling(
+                interval=interval,
+                on_device_added=on_device_added,
+                on_device_removed=on_device_removed
+            )
+            
+            # Keep monitoring active until interrupted
+            print("Monitoring active... (Press Ctrl+C to stop)")
+            while self.usb_detector._polling_active:
+                time.sleep(0.1)
+                
+        except KeyboardInterrupt:
+            print("\nStopping USB monitoring...")
+        finally:
+            self.usb_detector.stop_polling()
+            print("USB monitoring stopped.")
     
     def encrypt_device(self, device_path: str) -> None:
         """
@@ -212,6 +268,7 @@ def main():
     )
     parser.add_argument("--status", action="store_true", help="Print status")
     parser.add_argument("--detect", action="store_true", help="Detect USB devices")
+    parser.add_argument("--monitor", type=float, metavar="INTERVAL", help="Monitor USB devices with polling interval")
     parser.add_argument("--list-encrypted", action="store_true", help="List encrypted devices")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     
@@ -223,6 +280,8 @@ def main():
         print("Status: SecureUSB CLI OK — environment set up")
     elif args.detect:
         cli.detect_usb_devices()
+    elif args.monitor:
+        cli.monitor_usb_devices(args.monitor)
     elif args.list_encrypted:
         cli.list_encrypted_devices()
     else:
