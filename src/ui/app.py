@@ -397,21 +397,26 @@ class App(tk.Tk):
                     self._log("Metadata initialization cancelled - existing metadata preserved")
                     return
         
-        # Remove existing metadata if it exists (since we're overwriting with new credentials)
-        if meta_path.exists():
+        # Use the safe reinitialize method which cleans up encrypted files
+        cleanup_files = True  # Always cleanup encrypted files when overwriting metadata
+        if am.reinitialize_metadata(pw, cleanup_encrypted_files=cleanup_files):
+            # Add owner info to the metadata after creation
             try:
-                meta_path.unlink()
-                self._log(f"Removed existing metadata file: {META_FILENAME}")
+                meta = am.load_metadata()
+                meta["Username"] = owner
+                am.write_metadata_atomic(meta)
+                self._log(f"Successfully reinitialized metadata at {mp}/{META_FILENAME}")
+                if cleanup_files:
+                    self._log("Removed any orphaned encrypted files from previous configuration")
             except Exception as e:
-                self._log(f"Warning: Could not remove existing metadata: {e}")
-        
-        # Proceed with initialization
-        meta = am.create_auth_data(pw)
-        meta["Username"] = owner
-        am.write_metadata_atomic(meta)
-        self._log(f"Initialized metadata at {mp}/{META_FILENAME}")
+                self._log(f"Warning: Could not update owner info: {e}")
+        else:
+            self._log("Failed to reinitialize metadata")
+            messagebox.showerror("Error", "Failed to initialize metadata")
+            return
+            
         self._update_meta_state()
-        messagebox.showinfo("Success", "Metadata initialized.")
+        messagebox.showinfo("Success", "Metadata initialized successfully.")
 
     def on_check(self):
         mp = self._select_mount()
