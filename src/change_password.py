@@ -30,4 +30,4 @@ if __name__ == "__main__":
     with open(meta_file, "w") as f:
         json.dump(metadata, f, indent=4)
 
-    print("✅ Password updated successfully!")
+    print( "Password updated successfully!")
