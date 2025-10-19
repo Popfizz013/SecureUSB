@@ -327,6 +327,11 @@ class CLIInterface:
                             return
                         elif confirm == 'DESTROY':
                             print("⚠️ User confirmed destruction of existing encrypted files!")
+                            # Clean up existing encrypted files to prevent orphaned data
+                            removed_count = auth_manager.cleanup_encrypted_files()
+                            if removed_count > 0:
+                                print(f"✓ Removed {removed_count} orphaned encrypted files")
+                            
                             # Remove existing metadata since we're overwriting with new credentials
                             try:
                                 mount_path = Path(mount_point)

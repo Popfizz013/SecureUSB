@@ -165,9 +165,29 @@ class AuthManager:
 
     def verify_password(self, password: str, metadata: Dict[str, object]) -> bool:
         """Verify provided password against metadata (dict)."""
-        salt = _b64_decode(metadata["salt"]) if isinstance(metadata["salt"], str) else metadata["salt"]
-        stored_key_hash = _b64_decode(metadata["key_hash"]) if isinstance(metadata["key_hash"], str) else metadata["key_hash"]
-        iterations = int(metadata.get("iterations", self.iterations))
+        # Ensure salt is bytes
+        salt_raw = metadata["salt"]
+        if isinstance(salt_raw, str):
+            salt = _b64_decode(salt_raw)
+        elif isinstance(salt_raw, bytes):
+            salt = salt_raw
+        else:
+            raise TypeError(f"Salt must be str or bytes, got {type(salt_raw)}")
+        
+        # Ensure stored_key_hash is bytes
+        key_hash_raw = metadata["key_hash"]
+        if isinstance(key_hash_raw, str):
+            stored_key_hash = _b64_decode(key_hash_raw)
+        elif isinstance(key_hash_raw, bytes):
+            stored_key_hash = key_hash_raw
+        else:
+            raise TypeError(f"Key hash must be str or bytes, got {type(key_hash_raw)}")
+        
+        iterations_raw = metadata.get("iterations", self.iterations)
+        if isinstance(iterations_raw, (int, str)):
+            iterations = int(iterations_raw)
+        else:
+            iterations = self.iterations
 
         derived_key = self.derive_key_from_password(password, salt, iterations=iterations)
         derived_key_hash = hashlib.sha256(derived_key).digest()
@@ -177,8 +197,20 @@ class AuthManager:
         return result
 
     def get_encryption_key(self, password: str, metadata: Dict[str, object]) -> bytes:
-        salt = _b64_decode(metadata["salt"]) if isinstance(metadata["salt"], str) else metadata["salt"]
-        iterations = int(metadata.get("iterations", self.iterations))
+        # Ensure salt is bytes
+        salt_raw = metadata["salt"]
+        if isinstance(salt_raw, str):
+            salt = _b64_decode(salt_raw)
+        elif isinstance(salt_raw, bytes):
+            salt = salt_raw
+        else:
+            raise TypeError(f"Salt must be str or bytes, got {type(salt_raw)}")
+        
+        iterations_raw = metadata.get("iterations", self.iterations)
+        if isinstance(iterations_raw, (int, str)):
+            iterations = int(iterations_raw)
+        else:
+            iterations = self.iterations
         return self.derive_key_from_password(password, salt, iterations=iterations)
 
     def create_and_store_metadata(self, password: str, metadata_file: Optional[Path] = None) -> None:
@@ -204,6 +236,74 @@ class AuthManager:
         self.write_metadata_atomic(new_meta, metadata_file)
         logger.info("Password changed successfully")
         return True
+
+    def cleanup_encrypted_files(self) -> int:
+        """Clean up any encrypted files (.enc) in the device path.
+        
+        This should be called when overwriting metadata to prevent orphaned
+        encrypted files that can't be decrypted with the new configuration.
+        
+        Returns:
+            Number of encrypted files removed
+        """
+        removed_count = 0
+        try:
+            for enc_file in self.device_path.rglob("*.enc"):
+                if enc_file.is_file():
+                    # Skip system files and hidden directories
+                    path_str = str(enc_file)
+                    if any(part.startswith('.') for part in enc_file.parts[1:]):
+                        continue
+                    if any(sys_dir in path_str for sys_dir in ['System Volume Information', '$RECYCLE.BIN', '__MACOSX']):
+                        continue
+                    
+                    try:
+                        enc_file.unlink()
+                        removed_count += 1
+                        logger.debug(f"Removed encrypted file: {enc_file}")
+                    except (OSError, IOError) as e:
+                        logger.warning(f"Failed to remove encrypted file {enc_file}: {e}")
+        except Exception as e:
+            logger.error(f"Error during encrypted file cleanup: {e}")
+        
+        if removed_count > 0:
+            logger.info(f"Cleaned up {removed_count} encrypted files")
+        return removed_count
+
+    def reinitialize_metadata(self, password: str, cleanup_encrypted_files: bool = True, metadata_file: Optional[Path] = None) -> bool:
+        """Reinitialize metadata with a new password, optionally cleaning up encrypted files.
+        
+        This is a safe way to overwrite existing metadata, preventing orphaned encrypted files.
+        
+        Args:
+            password: New password for the device
+            cleanup_encrypted_files: Whether to remove existing encrypted files
+            metadata_file: Optional custom metadata file path
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Remove existing metadata if it exists
+            meta_path = self._meta_path(metadata_file)
+            if meta_path.exists():
+                meta_path.unlink()
+                logger.info("Removed existing metadata file")
+            
+            # Clean up encrypted files if requested
+            if cleanup_encrypted_files:
+                removed_count = self.cleanup_encrypted_files()
+                if removed_count > 0:
+                    logger.info(f"Removed {removed_count} orphaned encrypted files")
+            
+            # Create and store new metadata
+            self.create_and_store_metadata(password, metadata_file)
+            logger.info("Successfully reinitialized metadata")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to reinitialize metadata: {e}")
+            return False
 
 
 if __name__ == "__main__":
