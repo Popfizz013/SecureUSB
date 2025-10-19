@@ -24,7 +24,7 @@ MAC_USER_VOLUME_PREFIX = "/Volumes/"
 MAC_EXCLUDE_BASENAMES = {"Recovery", "Macintosh HD", "Preboot", "Update", "Data"}
 
 # Windows specific settings  
-WIN_EXCLUDE_DRIVES = {"C:", "D:"}  # Common system drives to exclude
+WIN_EXCLUDE_DRIVES = {"C:"}  # System drives to exclude (removed D: as it's commonly used for USB)
 
 
 class USBDetector:
@@ -66,16 +66,27 @@ class USBDetector:
         """Check if a Windows partition is likely removable."""
         device = partition.device
         mountpoint = partition.mountpoint
+        fstype = (partition.fstype or "").lower()
         
-        # Exclude common system drives
+        # Exclude common system drives (only C: by default)
         if device.rstrip("\\") in WIN_EXCLUDE_DRIVES:
             return False
             
-        # Check if drive letter is typically used for removable media
+        # Check if drive letter is a system drive
         if mountpoint and len(mountpoint) >= 2:
             drive_letter = mountpoint[:2]
             if drive_letter in WIN_EXCLUDE_DRIVES:
                 return False
+        
+        # Additional heuristics for removable drives:
+        # 1. FAT filesystems are more likely to be removable
+        if fstype in {"fat", "fat32", "exfat", "vfat"}:
+            return True
+            
+        # 2. NTFS drives could be external HDDs, but be more cautious
+        # Check if it's not the system drive (C:)
+        if fstype == "ntfs" and device.rstrip("\\") != "C:":
+            return True
         
         return True
     
