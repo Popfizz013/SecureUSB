@@ -1,8 +1,11 @@
 """
 Command-line interface for SecureUSB.
 """
+import argparse
+import hashlib
 import sys
 import time
+import traceback
 from pathlib import Path
 import getpass
 import os
@@ -46,6 +49,34 @@ class CLIInterface:
         # Fallback - assume it's already a mount point
         return device_path
     
+    def _is_system_file(self, file_path: Path) -> bool:
+        """
+        Check if a file is a system file that should be excluded from encryption.
+        
+        Args:
+            file_path: Path to the file to check
+            
+        Returns:
+            True if the file is a system file, False otherwise
+        """
+        # Skip files in hidden directories (starting with .)
+        if any(part.startswith('.') for part in file_path.parts[1:]):
+            return True
+        
+        # Skip system directories
+        path_str = str(file_path)
+        system_dirs = ['System Volume Information', '$RECYCLE.BIN', '__MACOSX']
+        if any(sys_dir in path_str for sys_dir in system_dirs):
+            return True
+        
+        # Skip our metadata files
+        if file_path.name.startswith('.secureusb_'):
+            return True
+            
+        return False
+    
+
+    
     def _encrypt_all_files(self, mount_point: str, crypto_engine: CryptoEngine) -> bool:
         """
         Encrypt all files on the USB drive.
@@ -61,13 +92,13 @@ class CLIInterface:
             mount_path = Path(mount_point)
             encrypted_count = 0
             
-            print(f"\nEncrypting all files in {mount_point}...")
+            print(f"\nEncrypting user files in {mount_point}...")
             
-            # Find all files (excluding our metadata files)
+            # Find all files (excluding system files and metadata files)
             for file_path in mount_path.rglob('*'):
                 if file_path.is_file():
-                    # Skip metadata files
-                    if file_path.name.startswith('.secureusb_'):
+                    # Skip system files (hidden directories, system folders, etc.)
+                    if self._is_system_file(file_path):
                         continue
                     
                     # Skip already encrypted files
@@ -75,7 +106,7 @@ class CLIInterface:
                         continue
                     
                     try:
-                        print(f"  Encrypting: {file_path.name}")
+                        print(f"  Encrypting: {file_path.relative_to(mount_path)}")
                         
                         # Create encrypted version
                         encrypted_path = file_path.with_suffix(file_path.suffix + '.enc')
@@ -90,7 +121,7 @@ class CLIInterface:
                         print(f"  ❌ Failed to encrypt {file_path.name}: {e}")
                         continue
             
-            print(f"✓ Successfully encrypted {encrypted_count} files")
+            print(f"✓ Successfully encrypted {encrypted_count} user files")
             return True
             
         except Exception as e:
@@ -99,7 +130,7 @@ class CLIInterface:
     
     def _decrypt_all_files(self, mount_point: str, crypto_engine: CryptoEngine) -> bool:
         """
-        Decrypt all files on the USB drive.
+        Decrypt all user files on the USB drive.
         
         Args:
             mount_point: Mount point of the USB drive
@@ -112,13 +143,17 @@ class CLIInterface:
             mount_path = Path(mount_point)
             decrypted_count = 0
             
-            print(f"\nDecrypting all files in {mount_point}...")
+            print(f"\nDecrypting user files in {mount_point}...")
             
-            # Find all encrypted files
+            # Find all encrypted user files (exclude system files)
             for file_path in mount_path.rglob('*.enc'):
                 if file_path.is_file():
+                    # Skip system files
+                    if self._is_system_file(file_path):
+                        continue
+                        
                     try:
-                        print(f"  Decrypting: {file_path.name}")
+                        print(f"  Decrypting: {file_path.relative_to(mount_path)}")
                         
                         # Create decrypted version (remove .enc extension)
                         if file_path.name.endswith('.enc'):
@@ -137,7 +172,7 @@ class CLIInterface:
                         print(f"  ❌ Failed to decrypt {file_path.name}: {e}")
                         continue
             
-            print(f"✓ Successfully decrypted {decrypted_count} files")
+            print(f"✓ Successfully decrypted {decrypted_count} user files")
             return True
             
         except Exception as e:
@@ -264,11 +299,14 @@ class CLIInterface:
             mount_point = self._get_device_mount_point(device_path)
             mount_path = Path(mount_point)
             
-            # Count encrypted files
-            encrypted_files = list(mount_path.rglob('*.enc'))
+            # Count encrypted user files only (exclude system files)
+            user_encrypted_files = []
+            for enc_file in mount_path.rglob('*.enc'):
+                if not self._is_system_file(enc_file):
+                    user_encrypted_files.append(enc_file)
             
-            if encrypted_files:
-                print(f"\n❌ Device has {len(encrypted_files)} encrypted files.")
+            if user_encrypted_files:
+                print(f"\n❌ Device has {len(user_encrypted_files)} encrypted user files.")
                 print("Use --decrypt option to access the encrypted files first.")
                 return
             
@@ -555,12 +593,61 @@ class CLIInterface:
         
         for device in devices:
             metadata_manager = MetadataManager(device['device'])
-            if metadata_manager.metadata_exists():
+            mount_point = device['mountpoint']
+            mount_path = Path(mount_point)
+            
+            # Check for encrypted files (.enc extension), but exclude system/hidden files
+            user_encrypted_files = []
+            if mount_path.exists() and mount_path.is_dir():
+                try:
+                    # Find all .enc files but exclude hidden directories and system files
+                    for enc_file in mount_path.rglob('*.enc'):
+                        # Skip files in hidden directories (starting with .)
+                        if any(part.startswith('.') for part in enc_file.parts[1:]):
+                            continue
+                        # Skip system directories
+                        path_str = str(enc_file)
+                        if any(sys_dir in path_str for sys_dir in ['System Volume Information', '$RECYCLE.BIN']):
+                            continue
+                        user_encrypted_files.append(enc_file)
+                except PermissionError:
+                    # Skip if we can't access the directory
+                    pass
+            
+            # Device is considered encrypted if:
+            # 1. It has metadata AND user encrypted files, OR
+            # 2. It has metadata but no user files at all (encrypted then cleaned)
+            has_metadata = metadata_manager.metadata_exists()
+            has_user_encrypted_files = len(user_encrypted_files) > 0
+            
+            # Count total user files (excluding metadata and system files)
+            total_user_files = 0
+            if mount_path.exists() and mount_path.is_dir():
+                try:
+                    for file_path in mount_path.rglob('*'):
+                        if not file_path.is_file():
+                            continue
+                        # Skip metadata files
+                        if file_path.name.startswith('.secureusb_'):
+                            continue
+                        # Skip files in hidden directories
+                        if any(part.startswith('.') for part in file_path.parts[1:]):
+                            continue
+                        # Skip system directories
+                        path_str = str(file_path)
+                        if any(sys_dir in path_str for sys_dir in ['System Volume Information', '$RECYCLE.BIN']):
+                            continue
+                        total_user_files += 1
+                except PermissionError:
+                    pass
+            
+            if has_metadata and (has_user_encrypted_files or total_user_files == 0):
                 device_info = metadata_manager.get_device_info()
                 if device_info:
                     encrypted_devices.append({
                         'device': device,
-                        'metadata': device_info
+                        'metadata': device_info,
+                        'encrypted_file_count': len(user_encrypted_files)
                     })
             else:
                 unencrypted_devices.append(device)
@@ -577,6 +664,7 @@ class CLIInterface:
             for i, enc_device in enumerate(encrypted_devices, 1):
                 device = enc_device['device']
                 metadata = enc_device['metadata']
+                encrypted_count = enc_device['encrypted_file_count']
                 
                 print(f"\nDevice {i}: {device['device']}")
                 print(f"  Mount Point: {device['mountpoint']}")
@@ -589,7 +677,12 @@ class CLIInterface:
                 print(f"  Created: {metadata['created_at']}")
                 if metadata['last_accessed']:
                     print(f"  Last Accessed: {metadata['last_accessed']}")
-                print(f"  Status: 🔒 ENCRYPTED")
+                if encrypted_count > 0:
+                    print(f"  Encrypted User Files: {encrypted_count}")
+                    print(f"  Status: 🔒 ENCRYPTED")
+                else:
+                    print(f"  Encrypted User Files: 0 (files may be decrypted)")
+                    print(f"  Status: 🔓 DECRYPTED (device setup for encryption)")
         
         if unencrypted_devices:
             print(f"\n🔓 UNENCRYPTED DEVICES ({len(unencrypted_devices)}):")
@@ -605,63 +698,6 @@ class CLIInterface:
                 print(f"  Status: 🔓 NOT ENCRYPTED")
         
         print(f"\nSummary: {len(encrypted_devices)} encrypted, {len(unencrypted_devices)} unencrypted")
-    
-    def demonstrate_full_flow(self) -> None:
-        """Demonstrate the complete USB detection → authentication → encryption flow."""
-        print("SecureUSB Complete Integration Demonstration")
-        print("=" * 50)
-        
-        # Step 1: USB Detection
-        print("Step 1: USB Device Detection")
-        print("-" * 30)
-        devices = self.usb_detector.detect_usb_devices()
-        
-        if not devices:
-            print("❌ No USB devices detected. Please connect a USB device to continue.")
-            return
-        
-        print(f"✓ Detected {len(devices)} USB device(s):")
-        for i, device in enumerate(devices, 1):
-            print(f"  {i}. {device['device']} -> {device['mountpoint']} ({device.get('fstype', 'unknown')})")
-        
-        # Let user select a device
-        if len(devices) == 1:
-            selected_device = devices[0]
-            print(f"\n✓ Auto-selected: {selected_device['device']}")
-        else:
-            try:
-                choice = input(f"\nSelect device (1-{len(devices)}): ").strip()
-                choice_idx = int(choice) - 1
-                if 0 <= choice_idx < len(devices):
-                    selected_device = devices[choice_idx]
-                else:
-                    print("❌ Invalid selection.")
-                    return
-            except ValueError:
-                print("❌ Invalid input.")
-                return
-        
-        device_path = selected_device['device']
-        
-        # Step 2: Check current status
-        print(f"\nStep 2: Authentication & Encryption Status Check")
-        print("-" * 30)
-        
-        metadata_manager = MetadataManager(device_path)
-        if metadata_manager.metadata_exists():
-            print("✓ Device is encrypted - demonstrating authentication flow")
-            self.decrypt_device(device_path)
-        else:
-            print("✓ Device is not encrypted - demonstrating encryption setup flow")
-            confirm = input("Would you like to set up encryption for this device? (y/N): ").strip().lower()
-            if confirm in ['y', 'yes']:
-                self.encrypt_device(device_path)
-            else:
-                print("Demonstration cancelled.")
-        
-        print("\n" + "=" * 50)
-        print("Integration demonstration complete!")
-        print("The flow demonstrated: USB Detection → Authentication → Encryption Integration")
 
 
 def main():
