@@ -10,7 +10,10 @@ def verify_password(password):
 def prompt_password():
     attempts = 0
     while attempts < MAX_ATTEMPTS:
-        password = getpass.getpass("Enter your USB password: ")
+
+        #password = getpass.getpass("Enter your USB password: ")
+        password = input("Enter your USB password: ")  # now visible while typing
+
         if verify_password(password):
             print("✅ Authentication successful!")
             return True
