@@ -28,7 +28,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --detect              # Detect connected USB devices
+  %(prog)s --detect              # Detect connected USB devices once
+  %(prog)s --monitor 2.0         # Monitor USB devices (poll every 2 seconds)  
   %(prog)s --encrypt /dev/sdb1   # Encrypt a USB device
   %(prog)s --decrypt /dev/sdb1   # Decrypt a USB device
         """
@@ -38,6 +39,13 @@ Examples:
         "--detect", 
         action="store_true",
         help="Detect and list connected USB devices"
+    )
+    
+    parser.add_argument(
+        "--monitor",
+        type=float,
+        metavar="INTERVAL",
+        help="Monitor USB devices with polling interval in seconds (e.g., --monitor 2.0)"
     )
     
     parser.add_argument(
@@ -72,6 +80,8 @@ Examples:
     try:
         if args.detect:
             cli.detect_usb_devices()
+        elif args.monitor:
+            cli.monitor_usb_devices(args.monitor)
         elif args.encrypt:
             cli.encrypt_device(args.encrypt)
         elif args.decrypt:
