@@ -30,8 +30,10 @@ def main():
 Examples:
   %(prog)s --detect              # Detect connected USB devices once
   %(prog)s --monitor 2.0         # Monitor USB devices (poll every 2 seconds)  
-  %(prog)s --encrypt /dev/sdb1   # Encrypt a USB device
-  %(prog)s --decrypt /dev/sdb1   # Decrypt a USB device
+  %(prog)s --status              # Show encryption status of all USB devices
+  %(prog)s --demo-flow           # Demonstrate full integration flow
+  %(prog)s --encrypt "D:/"       # Encrypt all files on USB drive D:/
+  %(prog)s --decrypt             # Auto-detect and decrypt encrypted USB device
         """
     )
     
@@ -57,7 +59,21 @@ Examples:
     parser.add_argument(
         "--decrypt",
         metavar="DEVICE", 
-        help="Decrypt the specified USB device"
+        nargs='?',
+        const='auto',
+        help="Decrypt the specified USB device (or auto-detect if no device specified)"
+    )
+    
+    parser.add_argument(
+        "--status",
+        action="store_true", 
+        help="Show encryption status of all detected USB devices"
+    )
+    
+    parser.add_argument(
+        "--demo-flow",
+        action="store_true",
+        help="Demonstrate complete USB detection → authentication → encryption flow"
     )
     
     parser.add_argument(
@@ -85,7 +101,14 @@ Examples:
         elif args.encrypt:
             cli.encrypt_device(args.encrypt)
         elif args.decrypt:
-            cli.decrypt_device(args.decrypt)
+            if args.decrypt == 'auto':
+                cli.auto_decrypt_device()
+            else:
+                cli.decrypt_device(args.decrypt)
+        elif args.status:
+            cli.list_encrypted_devices()
+        elif args.demo_flow:
+            cli.demonstrate_full_flow()
         elif args.gui:
             print("GUI interface is not implemented yet.")
             print("Please use CLI options for now.")

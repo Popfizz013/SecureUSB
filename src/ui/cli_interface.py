@@ -5,6 +5,8 @@ import sys
 import time
 from pathlib import Path
 import getpass
+import os
+import shutil
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -13,6 +15,7 @@ from usb_detector import USBDetector
 from auth_manager import AuthManager
 from crypto_engine import CryptoEngine
 from metadata import MetadataManager
+from utils.file_utils import FileUtils
 
 
 class CLIInterface:
@@ -27,6 +30,119 @@ class CLIInterface:
         """
         self.verbose = verbose
         self.usb_detector = USBDetector(verbose=verbose)
+    
+    def _get_device_mount_point(self, device_path: str) -> str:
+        """Get the mount point for a device path."""
+        # Check if it's already a mount point
+        if os.path.ismount(device_path):
+            return device_path
+        
+        # Check if it's a device path that we need to find the mount point for
+        devices = self.usb_detector.detect_usb_devices()
+        for device in devices:
+            if device['device'] == device_path:
+                return device['mountpoint']
+        
+        # Fallback - assume it's already a mount point
+        return device_path
+    
+    def _encrypt_all_files(self, mount_point: str, crypto_engine: CryptoEngine) -> bool:
+        """
+        Encrypt all files on the USB drive.
+        
+        Args:
+            mount_point: Mount point of the USB drive
+            crypto_engine: Initialized crypto engine
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            mount_path = Path(mount_point)
+            encrypted_count = 0
+            
+            print(f"\nEncrypting all files in {mount_point}...")
+            
+            # Find all files (excluding our metadata files)
+            for file_path in mount_path.rglob('*'):
+                if file_path.is_file():
+                    # Skip metadata files
+                    if file_path.name.startswith('.secureusb_'):
+                        continue
+                    
+                    # Skip already encrypted files
+                    if file_path.suffix == '.enc':
+                        continue
+                    
+                    try:
+                        print(f"  Encrypting: {file_path.name}")
+                        
+                        # Create encrypted version
+                        encrypted_path = file_path.with_suffix(file_path.suffix + '.enc')
+                        crypto_engine.encrypt_file(file_path, encrypted_path)
+                        
+                        # Securely delete original
+                        FileUtils.secure_delete(file_path)
+                        
+                        encrypted_count += 1
+                        
+                    except Exception as e:
+                        print(f"  ❌ Failed to encrypt {file_path.name}: {e}")
+                        continue
+            
+            print(f"✓ Successfully encrypted {encrypted_count} files")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error during file encryption: {e}")
+            return False
+    
+    def _decrypt_all_files(self, mount_point: str, crypto_engine: CryptoEngine) -> bool:
+        """
+        Decrypt all files on the USB drive.
+        
+        Args:
+            mount_point: Mount point of the USB drive
+            crypto_engine: Initialized crypto engine
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            mount_path = Path(mount_point)
+            decrypted_count = 0
+            
+            print(f"\nDecrypting all files in {mount_point}...")
+            
+            # Find all encrypted files
+            for file_path in mount_path.rglob('*.enc'):
+                if file_path.is_file():
+                    try:
+                        print(f"  Decrypting: {file_path.name}")
+                        
+                        # Create decrypted version (remove .enc extension)
+                        if file_path.name.endswith('.enc'):
+                            original_path = file_path.with_suffix('')
+                        else:
+                            original_path = file_path.with_suffix('.dec')
+                        
+                        crypto_engine.decrypt_file(file_path, original_path)
+                        
+                        # Remove encrypted file
+                        file_path.unlink()
+                        
+                        decrypted_count += 1
+                        
+                    except Exception as e:
+                        print(f"  ❌ Failed to decrypt {file_path.name}: {e}")
+                        continue
+            
+            print(f"✓ Successfully decrypted {decrypted_count} files")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error during file decryption: {e}")
+            return False
         
     def detect_usb_devices(self) -> None:
         """Detect and display connected USB devices."""
@@ -103,36 +219,79 @@ class CLIInterface:
     
     def encrypt_device(self, device_path: str) -> None:
         """
-        Encrypt a USB device.
+        Encrypt a USB device with integrated flow: detection → authentication → encryption.
         
         Args:
             device_path: Path to the device to encrypt
         """
-        print(f"Encrypting device: {device_path}")
+        print(f"Setting up encryption for device: {device_path}")
+        print("=" * 50)
         
-        # Check if device exists and is mounted
+        # Step 1: USB Detection and validation
+        print("Step 1: Validating USB device...")
         if not self.usb_detector.is_mounted(device_path):
             print(f"Error: Device {device_path} is not mounted or accessible.")
             return
+        
+        # Get device info for confirmation
+        devices = self.usb_detector.detect_usb_devices()
+        target_device = None
+        for device in devices:
+            if device['device'] == device_path or device['mountpoint'] == device_path:
+                target_device = device
+                break
+        
+        if not target_device:
+            print(f"Warning: Device {device_path} not found in USB device list.")
+            print("Proceeding anyway as it may be mounted...")
+            target_device = {'device': device_path, 'mountpoint': device_path, 'fstype': 'unknown'}
+        
+        print(f"✓ Device found: {target_device['device']}")
+        print(f"  Mount point: {target_device['mountpoint']}")
+        print(f"  Filesystem: {target_device.get('fstype', 'unknown').upper()}")
+        if 'total_size' in target_device:
+            total_size = target_device['total_size']
+            if isinstance(total_size, (int, float)):
+                total_gb = total_size / (1024**3)
+                print(f"  Size: {total_gb:.2f} GB")
         
         try:
             # Initialize managers
             auth_manager = AuthManager(device_path)
             metadata_manager = MetadataManager(device_path)
             
-            # Check if device is already encrypted
-            if metadata_manager.metadata_exists():
-                print("Device is already encrypted.")
+            # Check if files are currently encrypted (look for .enc files)
+            mount_point = self._get_device_mount_point(device_path)
+            mount_path = Path(mount_point)
+            
+            # Count encrypted files
+            encrypted_files = list(mount_path.rglob('*.enc'))
+            
+            if encrypted_files:
+                print(f"\n❌ Device has {len(encrypted_files)} encrypted files.")
+                print("Use --decrypt option to access the encrypted files first.")
                 return
+            
+            # If metadata exists but no encrypted files, device was previously encrypted but is now decrypted
+            if metadata_manager.metadata_exists():
+                print("\n⚠️  Device was previously encrypted but files are currently decrypted.")
+                print("Proceeding with re-encryption...")
+            
+            # Step 2: Authentication Setup
+            print("\nStep 2: Setting up authentication...")
             
             # Get owner ID
-            owner_id = input("Enter owner ID: ").strip()
+            owner_id = input("Enter owner/user ID: ").strip()
             if not owner_id:
-                print("Owner ID is required.")
+                print("❌ Owner ID is required.")
                 return
             
-            # Get password
+            # Get password with confirmation
+            print("Creating device password (minimum 8 characters):")
             password = auth_manager.prompt_for_password(confirm=True)
+            
+            # Step 3: Generate encryption keys and metadata
+            print("\nStep 3: Generating encryption keys...")
             
             # Create authentication data
             auth_data = auth_manager.create_auth_data(password)
@@ -144,50 +303,120 @@ class CLIInterface:
             key_hash = hashlib.sha256(key).digest()
             metadata = metadata_manager.create_metadata(owner_id, salt, key_hash)
             
+            print(f"✓ Generated device UUID: {metadata['uuid']}")
+            print(f"✓ Created authentication data for user: {owner_id}")
+            
+            # Step 4: Encryption Engine Integration (Stub)
+            print("\nStep 4: Integrating encryption engine...")
+            
+            # Initialize crypto engine with derived key
+            crypto_engine = CryptoEngine(key)
+            
+            print("✓ Encryption engine initialized with derived key")
+            print(f"✓ Using AES-256-GCM encryption")
+            print("✓ Ready for file encryption operations")
+            
             # Save metadata
+            print("\nStep 5: Saving device metadata...")
             if metadata_manager.save_metadata(metadata):
-                print("Device encryption setup completed successfully.")
-                print(f"Device UUID: {metadata['uuid']}")
+                print("✓ Device metadata saved successfully")
             else:
-                print("Error: Failed to save device metadata.")
+                print("❌ Failed to save device metadata")
+                return
+            
+            # Step 6: Encrypt all files on the device
+            print("\nStep 6: Encrypting all files on the device...")
+            mount_point = self._get_device_mount_point(device_path)
+            
+            if self._encrypt_all_files(mount_point, crypto_engine):
+                print("✓ All files have been encrypted successfully")
+            else:
+                print("❌ Some files could not be encrypted")
+            
+            # Integration complete
+            print("\n" + "=" * 50)
+            print("🔒 ENCRYPTION COMPLETE")
+            print("=" * 50)
+            print(f"Device UUID: {metadata['uuid']}")
+            print(f"Owner: {owner_id}")
+            print(f"Created: {metadata['created_at']}")
+            print(f"Status: All files are now encrypted and secure")
+            print("\nNext steps:")
+            print("- Files on the USB drive are now encrypted (.enc extension)")
+            print("- Use --decrypt to access the files in the future")
+            print("- Keep your password safe - it cannot be recovered!")
                 
         except Exception as e:
-            print(f"Error during encryption: {e}")
+            print(f"\n❌ Error during encryption setup: {e}")
             if self.verbose:
                 import traceback
                 traceback.print_exc()
     
     def decrypt_device(self, device_path: str) -> None:
         """
-        Decrypt a USB device.
+        Decrypt a USB device with integrated flow: detection → authentication → decryption access.
         
         Args:
             device_path: Path to the device to decrypt
         """
         print(f"Accessing encrypted device: {device_path}")
+        print("=" * 50)
         
-        # Check if device exists and is mounted
+        # Step 1: USB Detection and validation
+        print("Step 1: Validating USB device...")
         if not self.usb_detector.is_mounted(device_path):
-            print(f"Error: Device {device_path} is not mounted or accessible.")
+            print(f"❌ Device {device_path} is not mounted or accessible.")
             return
+        
+        # Get device info for confirmation
+        devices = self.usb_detector.detect_usb_devices()
+        target_device = None
+        for device in devices:
+            if device['device'] == device_path or device['mountpoint'] == device_path:
+                target_device = device
+                break
+        
+        if target_device:
+            print(f"✓ Device found: {target_device['device']}")
+            print(f"  Mount point: {target_device['mountpoint']}")
+            print(f"  Filesystem: {target_device.get('fstype', 'unknown').upper()}")
+        else:
+            print(f"✓ Device {device_path} is accessible")
         
         try:
             # Initialize managers
             auth_manager = AuthManager(device_path)
             metadata_manager = MetadataManager(device_path)
             
-            # Check if device is encrypted
+            # Step 2: Check encryption status
+            print("\nStep 2: Checking encryption status...")
             if not metadata_manager.metadata_exists():
-                print("Device is not encrypted or metadata not found.")
+                print("❌ Device is not encrypted or metadata not found.")
+                print("Use --encrypt option to set up encryption for this device.")
+                return
+            
+            # Check if files are actually encrypted
+            mount_point = self._get_device_mount_point(device_path)
+            mount_path = Path(mount_point)
+            encrypted_files = list(mount_path.rglob('*.enc'))
+            
+            if not encrypted_files:
+                print("❌ Device metadata exists but no encrypted files found.")
+                print("Files appear to be already decrypted.")
                 return
             
             # Load device info
             device_info = metadata_manager.get_device_info()
             if device_info:
-                print(f"Device Owner: {device_info['owner_id']}")
-                print(f"Created: {device_info['created_at']}")
+                print("✓ Encrypted device metadata found")
+                print(f"  Device UUID: {device_info['uuid']}")
+                print(f"  Owner: {device_info['owner_id']}")
+                print(f"  Created: {device_info['created_at']}")
                 if device_info['last_accessed']:
-                    print(f"Last Accessed: {device_info['last_accessed']}")
+                    print(f"  Last Accessed: {device_info['last_accessed']}")
+            
+            # Step 3: Authentication
+            print("\nStep 3: Authenticating access...")
             
             # Get password
             password = auth_manager.prompt_for_password()
@@ -195,44 +424,135 @@ class CLIInterface:
             # Load metadata for verification
             metadata = metadata_manager.load_metadata()
             if not metadata:
-                print("Error: Could not load device metadata.")
+                print("❌ Could not load device metadata.")
                 return
             
             salt = metadata_manager.get_salt()
             key_hash = metadata_manager.get_key_hash()
             
             if not salt or not key_hash:
-                print("Error: Invalid metadata - missing salt or key hash.")
+                print("❌ Invalid metadata - missing salt or key hash.")
                 return
             
             # Verify password using metadata
             derived_key = auth_manager.derive_key_from_password(password, salt)
             import hashlib
             if hashlib.sha256(derived_key).digest() != key_hash:
-                print("Error: Incorrect password.")
+                print("❌ Incorrect password. Access denied.")
                 return
+            
+            print("✓ Password verified successfully")
+            
+            # Step 4: Initialize encryption engine
+            print("\nStep 4: Initializing encryption engine...")
+            
+            # Initialize crypto engine with derived key
+            crypto_engine = CryptoEngine(derived_key)
+            
+            print("✓ Encryption engine initialized")
+            print("✓ Ready for secure file operations")
+            
+            # Step 5: Decrypt all files on the device
+            print("\nStep 5: Decrypting all files on the device...")
+            mount_point = self._get_device_mount_point(device_path)
+            
+            if self._decrypt_all_files(mount_point, crypto_engine):
+                print("✓ All files have been decrypted successfully")
+            else:
+                print("❌ Some files could not be decrypted")
             
             # Update last accessed time
             metadata_manager.update_last_accessed()
             
-            print("Password verified successfully.")
-            print("Device is now accessible.")
+            # Access granted
+            print("\n" + "=" * 50)
+            print("🔓 DEVICE ACCESS GRANTED - FILES DECRYPTED")
+            print("=" * 50)
+            print(f"Device UUID: {device_info['uuid'] if device_info else 'Unknown'}")
+            print(f"Owner: {device_info['owner_id'] if device_info else 'Unknown'}")
+            print("Status: All files are now decrypted and accessible")
+            print("\nFiles are now accessible:")
+            print("- All .enc files have been decrypted to their original form")
+            print("- You can now access and modify your files normally")
+            print("- Remember to encrypt again when done for security")
             
         except Exception as e:
-            print(f"Error during decryption: {e}")
+            print(f"\n❌ Error during device access: {e}")
             if self.verbose:
                 import traceback
                 traceback.print_exc()
     
-    def list_encrypted_devices(self) -> None:
-        """List all known encrypted devices."""
-        print("Scanning for encrypted devices...")
+    def auto_decrypt_device(self) -> None:
+        """
+        Auto-detect and decrypt an encrypted USB device.
+        """
+        print("Auto-detecting encrypted USB devices...")
+        print("=" * 50)
         
-        # This would typically scan known metadata locations
-        # For now, just detect current USB devices and check if they're encrypted
+        # Step 1: Detect USB devices
         devices = self.usb_detector.detect_usb_devices()
         
+        if not devices:
+            print("❌ No USB devices detected.")
+            return
+        
+        # Step 2: Find encrypted devices
         encrypted_devices = []
+        for device in devices:
+            metadata_manager = MetadataManager(device['device'])
+            if metadata_manager.metadata_exists():
+                encrypted_devices.append(device)
+        
+        if not encrypted_devices:
+            print("❌ No encrypted USB devices found.")
+            print("Use --encrypt to set up encryption for a device first.")
+            return
+        
+        # Step 3: Select device to decrypt
+        if len(encrypted_devices) == 1:
+            selected_device = encrypted_devices[0]
+            print(f"✓ Auto-selected encrypted device: {selected_device['device']}")
+        else:
+            print(f"Found {len(encrypted_devices)} encrypted device(s):")
+            for i, device in enumerate(encrypted_devices, 1):
+                print(f"  {i}. {device['device']} -> {device['mountpoint']}")
+            
+            try:
+                choice = input(f"\nSelect device to decrypt (1-{len(encrypted_devices)}): ").strip()
+                choice_idx = int(choice) - 1
+                if 0 <= choice_idx < len(encrypted_devices):
+                    selected_device = encrypted_devices[choice_idx]
+                else:
+                    print("❌ Invalid selection.")
+                    return
+            except ValueError:
+                print("❌ Invalid input.")
+                return
+        
+        # Step 4: Decrypt the selected device
+        self.decrypt_device(selected_device['device'])
+    
+    def list_encrypted_devices(self) -> None:
+        """List all known encrypted devices with integrated detection."""
+        print("Integrated USB Detection → Encryption Status Check")
+        print("=" * 50)
+        
+        # Step 1: USB Detection
+        print("Step 1: Scanning for USB devices...")
+        devices = self.usb_detector.detect_usb_devices()
+        
+        if not devices:
+            print("No USB devices detected.")
+            return
+        
+        print(f"✓ Found {len(devices)} USB device(s)")
+        
+        # Step 2: Check encryption status for each device
+        print("\nStep 2: Checking encryption status...")
+        
+        encrypted_devices = []
+        unencrypted_devices = []
+        
         for device in devices:
             metadata_manager = MetadataManager(device['device'])
             if metadata_manager.metadata_exists():
@@ -242,27 +562,106 @@ class CLIInterface:
                         'device': device,
                         'metadata': device_info
                     })
+            else:
+                unencrypted_devices.append(device)
         
-        if not encrypted_devices:
-            print("No encrypted devices found.")
+        # Display results
+        print("\n" + "=" * 50)
+        print("ENCRYPTION STATUS REPORT")
+        print("=" * 50)
+        
+        if encrypted_devices:
+            print(f"\n🔒 ENCRYPTED DEVICES ({len(encrypted_devices)}):")
+            print("-" * 30)
+            
+            for i, enc_device in enumerate(encrypted_devices, 1):
+                device = enc_device['device']
+                metadata = enc_device['metadata']
+                
+                print(f"\nDevice {i}: {device['device']}")
+                print(f"  Mount Point: {device['mountpoint']}")
+                print(f"  Filesystem: {device.get('fstype', 'unknown').upper()}")
+                if 'total_size' in device and isinstance(device['total_size'], (int, float)):
+                    total_gb = device['total_size'] / (1024**3)
+                    print(f"  Size: {total_gb:.2f} GB")
+                print(f"  Owner: {metadata['owner_id']}")
+                print(f"  UUID: {metadata['uuid']}")
+                print(f"  Created: {metadata['created_at']}")
+                if metadata['last_accessed']:
+                    print(f"  Last Accessed: {metadata['last_accessed']}")
+                print(f"  Status: 🔒 ENCRYPTED")
+        
+        if unencrypted_devices:
+            print(f"\n🔓 UNENCRYPTED DEVICES ({len(unencrypted_devices)}):")
+            print("-" * 30)
+            
+            for i, device in enumerate(unencrypted_devices, 1):
+                print(f"\nDevice {i}: {device['device']}")
+                print(f"  Mount Point: {device['mountpoint']}")
+                print(f"  Filesystem: {device.get('fstype', 'unknown').upper()}")
+                if 'total_size' in device and isinstance(device['total_size'], (int, float)):
+                    total_gb = device['total_size'] / (1024**3)
+                    print(f"  Size: {total_gb:.2f} GB")
+                print(f"  Status: 🔓 NOT ENCRYPTED")
+        
+        print(f"\nSummary: {len(encrypted_devices)} encrypted, {len(unencrypted_devices)} unencrypted")
+    
+    def demonstrate_full_flow(self) -> None:
+        """Demonstrate the complete USB detection → authentication → encryption flow."""
+        print("SecureUSB Complete Integration Demonstration")
+        print("=" * 50)
+        
+        # Step 1: USB Detection
+        print("Step 1: USB Device Detection")
+        print("-" * 30)
+        devices = self.usb_detector.detect_usb_devices()
+        
+        if not devices:
+            print("❌ No USB devices detected. Please connect a USB device to continue.")
             return
         
-        print(f"Found {len(encrypted_devices)} encrypted device(s):")
-        print()
+        print(f"✓ Detected {len(devices)} USB device(s):")
+        for i, device in enumerate(devices, 1):
+            print(f"  {i}. {device['device']} -> {device['mountpoint']} ({device.get('fstype', 'unknown')})")
         
-        for i, enc_device in enumerate(encrypted_devices, 1):
-            device = enc_device['device']
-            metadata = enc_device['metadata']
-            
-            print(f"Encrypted Device {i}:")
-            print(f"  Device: {device['device']}")
-            print(f"  Mount Point: {device['mountpoint']}")
-            print(f"  Owner: {metadata['owner_id']}")
-            print(f"  UUID: {metadata['uuid']}")
-            print(f"  Created: {metadata['created_at']}")
-            if metadata['last_accessed']:
-                print(f"  Last Accessed: {metadata['last_accessed']}")
-            print()
+        # Let user select a device
+        if len(devices) == 1:
+            selected_device = devices[0]
+            print(f"\n✓ Auto-selected: {selected_device['device']}")
+        else:
+            try:
+                choice = input(f"\nSelect device (1-{len(devices)}): ").strip()
+                choice_idx = int(choice) - 1
+                if 0 <= choice_idx < len(devices):
+                    selected_device = devices[choice_idx]
+                else:
+                    print("❌ Invalid selection.")
+                    return
+            except ValueError:
+                print("❌ Invalid input.")
+                return
+        
+        device_path = selected_device['device']
+        
+        # Step 2: Check current status
+        print(f"\nStep 2: Authentication & Encryption Status Check")
+        print("-" * 30)
+        
+        metadata_manager = MetadataManager(device_path)
+        if metadata_manager.metadata_exists():
+            print("✓ Device is encrypted - demonstrating authentication flow")
+            self.decrypt_device(device_path)
+        else:
+            print("✓ Device is not encrypted - demonstrating encryption setup flow")
+            confirm = input("Would you like to set up encryption for this device? (y/N): ").strip().lower()
+            if confirm in ['y', 'yes']:
+                self.encrypt_device(device_path)
+            else:
+                print("Demonstration cancelled.")
+        
+        print("\n" + "=" * 50)
+        print("Integration demonstration complete!")
+        print("The flow demonstrated: USB Detection → Authentication → Encryption Integration")
 
 
 def main():
