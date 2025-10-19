@@ -209,6 +209,7 @@ class App(tk.Tk):
         self.worker: threading.Thread | None = None
 
         self._build_ui()
+        self.after(0, self._go_fullscreen)   # make it fullscreen as soon as the window is ready
         self._startup()
         self._refresh_mounts()
         self.after(100, self._drain_logs)
@@ -267,7 +268,18 @@ class App(tk.Tk):
         self._log(" 1) Plug in your USB drive")
         self._log(" 2) Auto-refresh is ON by default. Watch to see your USB get detected.")
         self._log(" 3) [TO ENCRYPT]: Select USB → Choose a username and password → Init Metadata → Encrypt.")
-        self._log(" 4) [TO DECRYPT]: Select USB → Enter your username and password → Check Password → Decrypt.\n")
+        self._log(" 4) [TO DECRYPT]: Select USB → Enter your username and password → Check Password → Decrypt.")
+        self._log(" 5) To exit fullscreen mode, press Esc.\n")
+
+    def _go_fullscreen(self):
+        if platform.system() == "Windows":
+            # Windows can also do borderless fullscreen, but zoomed is more familiar.
+            self.state("zoomed")
+        else:
+            # macOS/Linux: borderless fullscreen
+            self.attributes("-fullscreen", True)
+            # optional: let users exit fullscreen with Esc
+            self.bind("<Escape>", lambda e: self.attributes("-fullscreen", False))
 
     # ----- helpers
     def _select_mount(self) -> str | None:
