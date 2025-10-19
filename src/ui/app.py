@@ -57,7 +57,10 @@ def _psutil_mounts_mac_only_volumes():
         dev = getattr(p, "device", "")
         label = f"{mp} ({dev}, {fstype})" if (dev or fstype) else mp
         out.append((label, mp))
-    return out
+    return [m for m in out
+            if m[1].startswith("/Volumes/")
+            and not m[1].startswith("/System/Volumes/")
+            and os.path.basename(m[1]).lower() not in {"recovery","preboot","update","vm"}]
 
 def list_usb_mounts_with_logs(log_cb) -> list[tuple[str, str]]:
     """Try USBDetector (with and without diskutil), then psutil fallback."""
@@ -76,6 +79,8 @@ def list_usb_mounts_with_logs(log_cb) -> list[tuple[str, str]]:
                     if mp:
                         label = f"{mp} ({dev}, {fs})" if (dev or fs) else mp
                         mounts.append((label, mp))
+                # ONLY real user USBs on macOS: /Volumes/*, not /System/Volumes/*, exclude Recovery/Preboot/Update/VM
+                mounts = [m for m in mounts if m[1].startswith("/Volumes/") and not (m[1].startswith("/System/Volumes/")) and os.path.basename(m[1]).lower() not in {"recovery","preboot","update","vm"}]
                 log_cb(" | ".join(tried))
                 return mounts
         except Exception as e:
