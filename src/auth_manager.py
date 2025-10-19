@@ -23,11 +23,20 @@ import json
 import logging
 import os
 import secrets
+import sys
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Tuple
+
+# Windows-specific imports for file hiding
+if sys.platform == "win32":
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except ImportError:
+        ctypes = None
 
 try:
     import getpass
@@ -46,6 +55,25 @@ def _b64_encode(b: bytes) -> str:
 
 def _b64_decode(s: str) -> bytes:
     return base64.b64decode(s.encode("ascii"))
+
+
+def _hide_file_windows(file_path: Path) -> bool:
+    """Hide a file on Windows by setting the hidden attribute.
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    if sys.platform != "win32" or ctypes is None:
+        return False
+    
+    try:
+        # FILE_ATTRIBUTE_HIDDEN = 2
+        FILE_ATTRIBUTE_HIDDEN = 2
+        ret = ctypes.windll.kernel32.SetFileAttributesW(str(file_path), FILE_ATTRIBUTE_HIDDEN)
+        return bool(ret)
+    except Exception as e:
+        logger.debug(f"Failed to hide file on Windows: {e}")
+        return False
 
 
 @dataclass
@@ -149,6 +177,14 @@ class AuthManager:
             tf.write(data)
             temp_name = tf.name
         os.replace(temp_name, str(meta_path))
+        
+        # Hide the file on Windows
+        if sys.platform == "win32":
+            if _hide_file_windows(meta_path):
+                logger.debug("Successfully hid metadata file on Windows")
+            else:
+                logger.debug("Failed to hide metadata file on Windows (file still functional)")
+        
         logger.info("Wrote metadata to %s", meta_path)
 
     def load_metadata(self, metadata_file: Optional[Path] = None) -> Dict[str, object]:
