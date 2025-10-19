@@ -1,0 +1,63 @@
+name: Build and release SecureUSB (Python / PyInstaller) - Windows & macOS only
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Ensure scripts executable
+        run: |
+          git status --porcelain || true
+          chmod +x .github/scripts/*.sh || true
+
+      - name: Run platform build script
+        env:
+          TAG: ${{ github.ref_name }}
+          CLI_ENTRY: "${{ inputs.cli_entry || 'src/main.py' }}"
+          GUI_ENTRY: "${{ inputs.gui_entry || 'src/main.py' }}"
+        run: |
+          mkdir -p dist
+          .github/scripts/build-${{ matrix.os }}.sh
+
+      - name: Package dist directory
+        id: package
+        run: |
+          ART=secureusb-${{ matrix.os }}-${{ github.ref_name }}.zip
+          if [ -d dist ]; then
+            zip -r "$ART" dist || (ls -la && false)
+            echo "artifact=$ART" >> $GITHUB_OUTPUT
+          else
+            echo "No dist/ directory found, failing"
+            exit 1
+          fi
+
+      - name: Create or upload to GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_name }}
+          files: ${{ steps.package.outputs.artifact }}
+
+      - name: Upload dist as workflow artifact (fallback)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: dist/

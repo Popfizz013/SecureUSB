@@ -24,3 +24,13 @@ src/utils/__pycache__/
 # Test files (temporary)
 test_metadata_*.py
 *_test.py
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+*.exe
+*.app
+*.dmg
+*.pfx
+cert.pfx
