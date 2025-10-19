@@ -16,7 +16,8 @@ if str(ROOT) not in sys.path:
 # Repo modules
 from src.usb_detector import USBDetector
 from src.auth_manager import AuthManager
-from src.crypto_engine import encrypt_file, decrypt_file
+from src.crypto_engine import encrypt_file, decrypt_file, CryptoEngine
+from src.utils.file_utils import FileUtils
 
 META_FILENAME = ".secureusb_meta.json"
 APP_TITLE = "SecureUSB (Tkinter)"
@@ -334,10 +335,24 @@ class App(tk.Tk):
     # ----- workers
     def _encrypt_worker(self, files, key: bytes):
         ok = err = 0
+        crypto_engine = CryptoEngine(key)
+        
         for i, path in enumerate(files, 1):
             try:
-                encrypt_file(path, key)
-                ok += 1; self._log(f"[enc] {path}")
+                file_path = Path(path)
+                
+                # Skip already encrypted files
+                if file_path.suffix == '.enc':
+                    continue
+                
+                # Create encrypted version
+                encrypted_path = file_path.with_suffix(file_path.suffix + '.enc')
+                crypto_engine.encrypt_file(file_path, encrypted_path)
+                
+                # Securely delete original
+                FileUtils.secure_delete(file_path)
+                
+                ok += 1; self._log(f"[enc] {path} -> {encrypted_path}")
             except Exception as e:
                 err += 1; self._log(f"[WARN] enc {path}: {e}")
             self.pb.after(0, self.pb.configure, {"value": i})
@@ -346,10 +361,24 @@ class App(tk.Tk):
 
     def _decrypt_worker(self, files, key: bytes):
         ok = err = 0
+        crypto_engine = CryptoEngine(key)
+        
         for i, path in enumerate(files, 1):
             try:
-                decrypt_file(path, key)
-                ok += 1; self._log(f"[dec] {path}")
+                file_path = Path(path)
+                
+                # Only process .enc files
+                if not file_path.suffix == '.enc':
+                    continue
+                
+                # Create decrypted version (remove .enc extension)
+                original_path = file_path.with_suffix('')
+                crypto_engine.decrypt_file(file_path, original_path)
+                
+                # Securely delete encrypted file
+                FileUtils.secure_delete(file_path)
+                
+                ok += 1; self._log(f"[dec] {path} -> {original_path}")
             except Exception as e:
                 err += 1; self._log(f"[WARN] dec {path}: {e}")
             self.pb.after(0, self.pb.configure, {"value": i})
