@@ -135,10 +135,12 @@ class CLIInterface:
             password = auth_manager.prompt_for_password(confirm=True)
             
             # Create authentication data
-            salt, key = auth_manager.create_auth_data(password)
+            auth_data = auth_manager.create_auth_data(password)
             
-            # Create metadata
+            # Extract salt and derive key for metadata
             import hashlib
+            salt = auth_manager.generate_salt()
+            key = auth_manager.derive_key_from_password(password, salt)
             key_hash = hashlib.sha256(key).digest()
             metadata = metadata_manager.create_metadata(owner_id, salt, key_hash)
             
@@ -190,7 +192,12 @@ class CLIInterface:
             # Get password
             password = auth_manager.prompt_for_password()
             
-            # Verify password
+            # Load metadata for verification
+            metadata = metadata_manager.load_metadata()
+            if not metadata:
+                print("Error: Could not load device metadata.")
+                return
+            
             salt = metadata_manager.get_salt()
             key_hash = metadata_manager.get_key_hash()
             
@@ -198,8 +205,8 @@ class CLIInterface:
                 print("Error: Invalid metadata - missing salt or key hash.")
                 return
             
-            # Verify password
-            derived_key = auth_manager.get_encryption_key(password, salt)
+            # Verify password using metadata
+            derived_key = auth_manager.derive_key_from_password(password, salt)
             import hashlib
             if hashlib.sha256(derived_key).digest() != key_hash:
                 print("Error: Incorrect password.")
