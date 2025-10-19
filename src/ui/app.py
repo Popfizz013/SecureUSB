@@ -1,6 +1,6 @@
 # src/ui/app.py
 from __future__ import annotations
-import os, sys, threading, queue, time, traceback
+import os, sys, threading, queue, time, traceback, platform
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -8,12 +8,12 @@ from tkinter import ttk, filedialog, messagebox
 # Silence macOS system Tk warning
 os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
 
-# --- Make imports work whether you run "python -m src.ui.app" or directly ---
-ROOT = Path(__file__).resolve().parents[2]  # project root (parent of "src")
+# Ensure imports work whether run as module or directly
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# --- Import repo modules ---
+# Repo modules
 from src.usb_detector import USBDetector
 from src.auth_manager import AuthManager
 from src.crypto_engine import encrypt_file, decrypt_file
@@ -21,13 +21,14 @@ from src.crypto_engine import encrypt_file, decrypt_file
 META_FILENAME = ".secureusb_meta.json"
 APP_TITLE = "SecureUSB (Tkinter)"
 EXCLUDED_DIRS = {"System Volume Information", "$RECYCLE.BIN", META_FILENAME}
+POLL_MS = 1500  # auto-refresh every 1.5s
 
 # ---------- helpers ----------
 def walk_files(root: str):
     for dp, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS]
         for n in filenames:
-            if n in EXCLUDED_DIRS: 
+            if n in EXCLUDED_DIRS:
                 continue
             p = os.path.join(dp, n)
             if os.path.isfile(p) and not p.endswith(".enc"):
@@ -42,9 +43,8 @@ def walk_enc_files(root: str):
                 yield p
 
 def _psutil_mounts_mac_only_volumes():
-    # Fallback if detector yields nothing; show only user volumes
     try:
-        import psutil, platform
+        import psutil
     except Exception:
         return []
     out = []
@@ -53,22 +53,19 @@ def _psutil_mounts_mac_only_volumes():
         mp = p.mountpoint
         if is_darwin and not mp.startswith("/Volumes/"):
             continue  # hide APFS internals
-        # show common removable fs; msdos/exfat/ntfs/hfs/apfs are fine for demo
         fstype = (p.fstype or "").lower()
-        label = f"{mp} ({getattr(p, 'device','')}, {fstype})" if getattr(p, "device", "") or fstype else mp
+        dev = getattr(p, "device", "")
+        label = f"{mp} ({dev}, {fstype})" if (dev or fstype) else mp
         out.append((label, mp))
-    return out
+    return [m for m in out
+            if m[1].startswith("/Volumes/")
+            and not m[1].startswith("/System/Volumes/")
+            and os.path.basename(m[1]).lower() not in {"recovery","preboot","update","vm"}]
 
 def list_usb_mounts_with_logs(log_cb) -> list[tuple[str, str]]:
-    """
-    Returns [(label, mountpoint)], tries:
-      1) USBDetector(..., verify_with_diskutil=True)
-      2) USBDetector(..., verify_with_diskutil=False)
-      3) psutil fallback (/Volumes/* on macOS)
-    """
+    """Try USBDetector (with and without diskutil), then psutil fallback."""
     detector = USBDetector()
     tried = []
-
     for flag in (True, False):
         try:
             devs = detector.detect_usb_devices(verify_with_diskutil=flag) or []
@@ -82,32 +79,35 @@ def list_usb_mounts_with_logs(log_cb) -> list[tuple[str, str]]:
                     if mp:
                         label = f"{mp} ({dev}, {fs})" if (dev or fs) else mp
                         mounts.append((label, mp))
-                if mounts:
-                    log_cb(" | ".join(tried))
-                    return mounts
+                # ONLY real user USBs on macOS: /Volumes/*, not /System/Volumes/*, exclude Recovery/Preboot/Update/VM
+                mounts = [m for m in mounts if m[1].startswith("/Volumes/") and not (m[1].startswith("/System/Volumes/")) and os.path.basename(m[1]).lower() not in {"recovery","preboot","update","vm"}]
+                log_cb(" | ".join(tried))
+                return mounts
         except Exception as e:
             tried.append(f"USBDetector(flag={flag}) -> ERROR {e}")
-
-    # Fallback
     mounts = _psutil_mounts_mac_only_volumes()
     tried.append(f"psutil fallback -> {len(mounts)}")
     log_cb(" | ".join(tried))
     return mounts
 
-# ---------- app ----------
+# ---------- App ----------
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_TITLE)
         self.geometry("900x580"); self.minsize(780, 480)
+
         self.mounts: list[tuple[str,str]] = []
+        self._last_mount_set: set[str] = set()
         self.log_q: "queue.Queue[str]" = queue.Queue()
         self.worker: threading.Thread | None = None
         self.stop_flag = threading.Event()
+
         self._build_ui()
         self._startup_message()
         self._refresh_mounts()
         self.after(100, self._drain_logs)
+        self.after(POLL_MS, self._poll_tick)
 
     def _build_ui(self):
         top = ttk.Frame(self, padding=12); top.pack(fill="x")
@@ -115,6 +115,10 @@ class App(tk.Tk):
         self.cbo_mount = ttk.Combobox(top, state="readonly", width=52)
         self.cbo_mount.pack(side="left", padx=6)
         ttk.Button(top, text="Refresh", command=self._refresh_mounts).pack(side="left")
+
+        self.auto_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(top, text="Auto-refresh", variable=self.auto_var).pack(side="left", padx=(12, 0))
+
         ttk.Label(top, text="   Metadata:").pack(side="left", padx=(12,4))
         self.lbl_meta = ttk.Label(top, text="unknown"); self.lbl_meta.pack(side="left")
         self.cbo_mount.bind("<<ComboboxSelected>>", lambda e: self._update_meta_state())
@@ -142,24 +146,27 @@ class App(tk.Tk):
 
     def _startup_message(self):
         self._log("Welcome 👋  Steps:")
-        self._log(" 1) Plug in your USB (Finder: /Volumes/<name>).")
-        self._log(" 2) Click Refresh. Select your USB from the dropdown.")
-        self._log(" 3) Set a password → Init Metadata. Then run Encrypt/Decrypt.")
+        self._log(" 1) Plug in your USB (on macOS it mounts under /Volumes/<name>).")
+        self._log(" 2) Auto-refresh is ON. Watch the log for 'USB added/removed'.")
+        self._log(" 3) Select your USB → set password → Init Metadata → Encrypt/Decrypt.")
 
-    # ----- helpers
     def _select_mount(self) -> str | None:
         i = self.cbo_mount.current()
         if i < 0 or i >= len(self.mounts): return None
         return self.mounts[i][1]
 
     def _refresh_mounts(self):
+        prev_sel = self._select_mount()
         self.mounts = list_usb_mounts_with_logs(self._log)
         self.cbo_mount["values"] = [lab for (lab, _) in self.mounts]
-        if self.mounts:
+        if prev_sel and any(mp == prev_sel for _, mp in self.mounts):
+            self.cbo_mount.current([mp for _, mp in self.mounts].index(prev_sel))
+        elif self.mounts:
             self.cbo_mount.current(0)
-            self._log(f"Found {len(self.mounts)} removable volume(s).")
-        else:
-            self._log("No removable volumes found. If on macOS, your USB should appear under /Volumes.")
+        curr_set = set(mp for _, mp in self.mounts)
+        self._last_mount_set = curr_set
+        self._log(f"Found {len(self.mounts)} removable volume(s)." if self.mounts else
+                  "No removable volumes found. On macOS, your USB should appear under /Volumes.")
         self._update_meta_state()
 
     def _update_meta_state(self):
@@ -183,6 +190,24 @@ class App(tk.Tk):
         except queue.Empty:
             pass
         self.after(100, self._drain_logs)
+
+    def _poll_tick(self):
+        if self.auto_var.get():
+            mounts_now = list_usb_mounts_with_logs(lambda _: None)
+            curr = set(mp for _, mp in mounts_now)
+            prev = self._last_mount_set
+            added = sorted(curr - prev)
+            removed = sorted(prev - curr)
+            if added or removed:
+                for mp in added: self._log(f"USB added:   {mp}")
+                for mp in removed: self._log(f"USB removed: {mp}")
+                self.mounts = mounts_now
+                self.cbo_mount["values"] = [lab for (lab, _) in self.mounts]
+                if self.mounts and self.cbo_mount.current() == -1:
+                    self.cbo_mount.current(0)
+                self._last_mount_set = curr
+                self._update_meta_state()
+        self.after(POLL_MS, self._poll_tick)
 
     def _run_bg(self, target, *args):
         if self.worker and self.worker.is_alive():
