@@ -80,29 +80,23 @@ SecureUSB - Secure USB Drive Protection System
         python src/main.py --decrypt             # Auto-detect and decrypt encrypted USB device  
 
 # user-guide: 
+**Download the latest executable here:**  
+https://github.com/Popfizz013/SecureUSB/releases/tag/v1.0.0
 
-bash# Clone the repository
-git clone https://github.com/yourusername/SecureUSB.git
-cd SecureUSB
+- **Windows:** download the `.exe`, then double-click to run.
+  - If SmartScreen warns you, click **More info → Run anyway** (we don’t have code-signing yet).
+- **macOS (Apple Silicon/Intel):** download the `.app` or `.dmg`.
+  - If Gatekeeper blocks it: **Right-click → Open → Open** once to whitelist the app.
 
-Create virtual environment
-python -m venv .venv
+> Tip: Always prefer the newest file attached to that release page (look for the highest version or most recent upload timestamp).
 
-Activate virtual environment
- Windows:
-.venv\Scripts\activate
- macOS/Linux:
-source .venv/bin/activate
- Install dependencies
-pip install -r requirements.txt
+---
 
-📋 Requirements
+## Running
 
-Python 3.8+
-cryptography - AES-256-GCM encryption
-psutil - Cross-platform USB detection
-pyudev - Advanced Linux USB detection
-tqdm - Progress bar visualization
-tkinter - GUI interface (included with Python)
+1. Plug in your USB drive.
+2. Launch **SecureUSB**.
+3. Select your drive, enter **Username** and **Password**, and click **Init Metadata** once for first-time setup.
+4. Use **Encrypt Folder… / Encrypt Whole USB** to protect files, or **Decrypt All on USB** to restore.
 
-Install all dependencies:
+> Advanced users can still run from source with Python (`python -m src.ui.app`), but the executable above is the easiest way to get started.
