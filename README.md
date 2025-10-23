@@ -28,7 +28,7 @@ Rahil – UI & CLI Developer
         Error reporting and recovery
 
 
-# 🔧 How It Works
+# How It Works
 
 ### The Encryption Process
 
