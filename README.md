@@ -100,3 +100,9 @@ https://github.com/Popfizz013/SecureUSB/releases/tag/v1.0.0
 4. Use **Encrypt Folder… / Encrypt Whole USB** to protect files, or **Decrypt All on USB** to restore.
 
 > Advanced users can still run from source with Python (`python -m src.ui.app`), but the executable above is the easiest way to get started.
+
+## Future Work
+
+### Device-Bound Security
+A planned feature for **SecureUSB** is a device-bound mode that restricts a USB key to work on a single computer. Each computer will generate a unique **public/private key pair** — the **private key** stays on the machine, while the **public key** is stored on the USB. When inserted, SecureUSB verifies that the system’s private key matches the USB’s public key before allowing access. This applies **asymmetric encryption**, ensuring that even if the USB is copied, only the authorized computer can decrypt its data.
+
